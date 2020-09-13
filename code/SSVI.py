@@ -4,7 +4,7 @@ import scipy
 import BS
 from scipy import *
 import bootstrapping
-
+from scipy.sparse import csc_matrix
 
 #####################################################################################    Black-scholes
 def blsprice(close,
@@ -79,12 +79,19 @@ def zeros(x):
 def idxmin(x):
     return np.unravel_index(np.argmin(x), x.shape)
 
+def unsortedUniquePairs(a):
+    _, idx = np.unique(np.ravel([p[0] for p in a]), return_index=True)
+    return [a[i] for i in np.sort(idx)]
+
 
 #####################################################################################    First SSVI calibration
 def fit_ssvi(phifun=None, log_moneyness=None, theta_expanded=None, total_implied_variance=None):
     lb = np.array([-1, 0])
     ub = np.array([1, np.inf])
-    c = lambda x: mycon(x, phifun)
+    lambdaConstraint = 1#10000
+    c = lambda x: lambdaConstraint * mycon(x, phifun)
+    cJac = lambda x: lambdaConstraint * myconJac(x, phifun)
+    cHess = lambda x,v: lambdaConstraint * myconHess(x, v, phifun)
     #options = optimset('fmincon')
     #options = optimset(options, 'algorithm', 'interior-point')
     #options = optimset(options, 'Display', 'off')
@@ -99,10 +106,12 @@ def fit_ssvi(phifun=None, log_moneyness=None, theta_expanded=None, total_implied
         #                                          [], [], [], [], 
         #                                          lb, ub, c, options)
         constraints = (scipy.optimize.NonlinearConstraint(c, 
-                                                          -np.inf, 0, 
+                                                          -np.inf, 0,
+                                                          jac=cJac,
+                                                          hess=cHess,
                                                           keep_feasible=False))
         res = scipy.optimize.minimize(targetfun, param0, 
-                                      method="L-BFGS-B", #"trust-constr",#"COBYLA",  
+                                      method= "SLSQP",#"L-BFGS-B", #"trust-constr",#"trust-constr",
                                       bounds=list(zip(lb, ub)),#[lb, ub],
                                       constraints = constraints) 
         parameters[:, n] = res.x
@@ -145,6 +154,28 @@ def mycon(x=None, phifun=None):
         raise Exception('Incorrect function for phi') 
     return (c, ceq)
 
+def myconJac(x=None, phifun=None):
+    ceq = np.array([0,0])
+    __switch_0__ = phifun
+    if __switch_0__ == 'heston_like':
+        c = np.array([np.sign(x[0]), 4])    #by construction, rho is the first parameter, lamda the second
+    elif __switch_0__ == 'power_law':
+        c = np.array([x[1] * np.sign(x[0]), (1 + abs(x[0]))])  #by construction, rho is the first parameter, lamda the second
+    else:
+        raise Exception('Incorrect function for phi')
+    return (c, ceq)
+
+def myconHess(x=None, v=None, phifun=None):
+    ceq = np.array([[0,0],[0,0]])
+    __switch_0__ = phifun
+    if __switch_0__ == 'heston_like':
+        c = np.array([[0,0],[0,0]])   #by construction, rho is the first parameter, lamda the second
+    elif __switch_0__ == 'power_law':
+        c = np.array([[0, np.sign(x[0])], [np.sign(x[0]), 0]]) #by construction, rho is the first parameter, lamda the second
+    else:
+        raise Exception('Incorrect function for phi')
+    return c#(c, ceq)
+
 
 def generateRandomStartValues(lb=None, ub=None):
     # function to generate random intial values for the parameters
@@ -167,12 +198,13 @@ def fit_svi(x0=None, k=None,
     small = 1e-6
     lb = [small, -large, small, small, small]
     ub = [large, large, large, large, large]
-    targetfun = lambda x: fitfunctionSVI(x, k, 
-                                         total_implied_variance, 
-                                         slice_before, slice_after, 
+    lambdaConstraint = 10000
+    targetfun = lambda x: fitfunctionSVI(x, k,
+                                         total_implied_variance,
+                                         slice_before, slice_after,
                                          tau,
                                          gridPenalization,
-                                         param_slice_before, 
+                                         param_slice_before,
                                          param_slice_after)
     # only optimize first three variables, final two are set by no-arbitrage condition
     x0 = x0[:3]
@@ -190,7 +222,7 @@ def fit_svi(x0=None, k=None,
     nbRestart = 50
     for i in np.arange(nbRestart):
         res = scipy.optimize.minimize(targetfun, x0, 
-                                      method="L-BFGS-B", #"trust-constr",#"COBYLA", 
+                                      method="SLSQP",#"L-BFGS-B", #"trust-constr",#"trust-constr",
                                       bounds=list(zip(lb, ub)),#[lb, ub],
                                       constraints = constraints) 
         #res = fmincon(targetfun, x0, A, b, [], [], lb, ub, [], options)
@@ -289,7 +321,7 @@ def interp1(x, v, xq, method, extrapolationMethod):
                                               kind=method,
                                               fill_value="extrapolate")
     else :
-        sortedPairs = [(x,v) for x,v in sorted(zip(np.ravel(x),np.ravel(v)))]
+        sortedPairs = unsortedUniquePairs([(x,v) for x,v in sorted(zip(np.ravel(x),np.ravel(v)))])
         funInter = scipy.interpolate.PchipInterpolator(np.ravel([p[0] for p in sortedPairs]),
                                                        np.ravel([p[1] for p in sortedPairs]),
                                                        extrapolate=(extrapolationMethod == "extrapolate"))
@@ -325,7 +357,7 @@ def fit_svi_surface(implied_volatility=None,
         if np.isin(0, log_moneyness[pos]):
             theta[t] = tiv_t[log_moneyness[pos] == 0] #ATM total implied variance 
         else:#Interpolate ATM total implied variance from the smile
-            theta[t] = interp1(log_moneyness[pos], tiv_t, 0, 'cubic', 'extrapolate')
+            theta[t] = interp1(log_moneyness[pos], tiv_t, 0, 'linear', 'extrapolate')
         
         theta_expanded[pos] = theta[t]
     
@@ -388,7 +420,7 @@ def fit_svi_surface(implied_volatility=None,
             param_after = [v[t + 1], psi[t + 1], p[t + 1], c[t + 1], vt[t + 1]]
             slice_after,_ = svi_jumpwing(log_moneyness_t, param_after, maturities[t + 1])
         
-        print("time step",t)
+        print("time step", t, " : ", maturities[t])
         param0 = [v[t], psi[t], p[t], c[t], vt[t]]
         parameters[:3, t] = fit_svi(param0,
                                     log_moneyness_t,
@@ -636,7 +668,7 @@ def svi_interpolation(log_moneyness=None,
     _assert(isequal(size(theta), size(forward_theta), size(interest_rate_theta)), 
             ('theta, forward_theta, and interestrate_theta have to have the same size'))
     # estimate theta for interpolated maturity
-    theta_interp = interp1(maturities, theta, tau_interp, 'cubic', 'extrapolate')
+    theta_interp = interp1(maturities, theta, tau_interp, 'linear', 'extrapolate')
     close = S0#np.multiply(forward_interp, exp(-interest_interp * tau_interp))
     if ismember(tau_interp, maturities):
         indexMaturity = np.argwhere(maturities == tau_interp)[0][0]
@@ -671,7 +703,7 @@ def svi_interpolation(log_moneyness=None,
             optionPrice[optionPrice < 0] = 0
         elif tau_interp < min(maturities):
             # extrapolation for small maturities
-            forward_0 = interp1(theta, forward_theta, 0, 'cubic', 'extrapolate')
+            forward_0 = interp1(theta, forward_theta, 0, 'linear', 'extrapolate')
             strike_1 = forward_0 * exp(log_moneyness)
             isCall = np.where(optionType==1, True, False)
             optionPrice_1 = np.where(isCall,
@@ -701,6 +733,8 @@ def svi_interpolation(log_moneyness=None,
             # extrapolation for large maturities
             total_implied_variance,_ = svi_jumpwing(log_moneyness, parameters[:, -1], maturities[-1])
             total_implied_variance = total_implied_variance + theta_interp - theta[-1]
+            #print(total_implied_variance)
+            #print(tau_interp)
             implied_volatility = sqrt(total_implied_variance / tau_interp)
             strike = forward_interp * exp(log_moneyness)
             optionPrice = np.array(blsprice(close, strike,
@@ -899,7 +933,7 @@ def svi_surface(k=None, theta=None, rho=None, phifun=None, phi_param=None, tau=N
         
     
     if isequal(size(k), size(theta), size(tau)):
-        impliedvolatility = sqrt(np.divide(totalvariance, tau))
+        impliedvolatility = sqrt(np.divide(np.round(totalvariance, decimals = 4), tau))
     else:
         # expand tau
         tau_expanded = zeros(totalvariance.shape)
@@ -928,10 +962,13 @@ def interpolateGrid(df,
         maturity = smile[0]
         tau_interp = maturity
         k = smile[1]["logMoneyness"].values
+        #print(maturities)
+        #print(forward_theta)
+        #print(tau_interp)
         forward_interp = interp1(maturities, 
-                                 forward_theta, 
-                                 tau_interp, 
-                                 'cubic',
+                                 forward_theta,
+                                 tau_interp,
+                                 'linear',
                                  "extrapolate")
         interest_interp = bootstrap.discountShortRate(tau_interp)
         optionType = smile[1]["OptionType"].values
@@ -966,7 +1003,7 @@ def interpolateWithSSVI(df, parameters, theta, maturities, pSSVI):
     
     logMoneyness = df[df["Maturity"] > 0]["logMoneyness"].values
     tau = df[df["Maturity"] > 0]["Maturity"].values
-    impliedATMTotalVar = interp1(maturities, theta, tau, 'cubic', "extrapolate")
+    impliedATMTotalVar = interp1(maturities, theta, tau, 'linear', "extrapolate")
     impliedTotalVar, impliedVol =  svi_surface(k=logMoneyness, 
                                                theta=impliedATMTotalVar, 
                                                rho=pSSVI[0], 
@@ -1020,9 +1057,9 @@ def finiteDifferenceSVI(xSet, sviEvalModel):
     
     return dT, hk, dK, locVolGatheral, numerator
 
-def removeMaturityWithSingleOccurence(df):
+def removeMaturityInvalidData(df):
     initialist = df["Maturity"].unique()
-    maturitiesToKeep = np.ravel( list( filter(lambda x : (df[df["Maturity"]==x].shape[0] > 1), initialist) ) )
+    maturitiesToKeep = np.ravel( list( filter(lambda x : (df[df["Maturity"]==x]["logMoneyness"].unique().shape[0] > 1), initialist) ) )
     return df[df["Maturity"].isin(maturitiesToKeep)]
 
 ########################################################################################## Main Class
@@ -1033,7 +1070,7 @@ class SSVIModel:
         self.bootstrap = bootstrap
         self.S0 = S0
         self.tau_interp = 30 / 365.25
-        self.interpMethod = 'cubic'
+        self.interpMethod = 'linear'
         self.extrapolationMethod = "extrapolate"
 
         #Fitting results
@@ -1045,7 +1082,7 @@ class SSVIModel:
         self.forward_theta = None
 
     def fit(self, df):
-        filteredDf = removeMaturityWithSingleOccurence(df)
+        filteredDf = removeMaturityInvalidData(df)
         self.parameters, self.theta, self.maturities, self.pSSVI = fit_svi_surface(filteredDf["ImpliedVol"].values,
                                                                                    filteredDf["Maturity"].values,
                                                                                    filteredDf["logMoneyness"].values,
@@ -1055,7 +1092,7 @@ class SSVIModel:
         forward = np.exp(-filteredDf["logMoneyness"]) * filteredDf["Strike"]
         # round for float comparaison
         self.forward_theta = (forward[filteredDf["Maturity"].isin(self.maturities)]
-                              .round(decimals=9)
+                              .round(decimals=6)
                               .droplevel("Strike")
                               .drop_duplicates()
                               .loc[self.maturities].values)

@@ -195,3 +195,38 @@ def rmse(a,b):
     bFiltered = b[b.index.get_level_values("Maturity") > 0]
     return np.sqrt(np.mean(np.square(aFiltered-bFiltered)))
 
+
+######################################################################## Sanity check with implied volatilities
+def MonteCarloPricerImplicit(S,
+                             Strike,
+                             Maturity,
+                             bootstrap,
+                             nbPaths,
+                             nbTimeStep,
+                             impliedVol):
+  time_grid = np.linspace(0, Maturity, int(nbTimeStep + 1))
+  timeStep = Maturity / nbTimeStep
+  gaussianNoise = np.random.normal(scale = np.sqrt(timeStep), size=(nbTimeStep, nbPaths))
+
+  logReturn = np.zeros((nbTimeStep + 1, nbPaths))
+  logReturn[0,:] = 0
+
+  for i in range(nbTimeStep) :
+      t = time_grid[i]
+
+      St = S0 * np.exp(logReturn[i,:])
+      volLocale = impliedVol
+
+      mu = bootstrap.discountShortRate(t) - bootstrap.dividendShortRate(t)
+      drift = np.ones(nbPaths) * (mu - np.square(volLocale) / 2.0)
+      logReturn[i + 1, :] = logReturn[i,:] + drift * timeStep + gaussianNoise[i,:] * volLocale
+  SFinal = S0 * np.exp(logReturn[-1, :])
+  return np.mean(np.maximum(Strike - SFinal, 0))
+
+def MonteCarloPricerVectorizedImplicit(S,
+                                       dataSet,
+                                       bootstrap,
+                                       nbPaths,
+                                       nbTimeStep):
+  func = lambda x : MonteCarloPricerImplicit(S, x["Strike"], x["Maturity"], bootstrap, nbPaths, nbTimeStep, x["ImpliedVol"])
+  return dataSet.apply(func, axis=1) * np.exp(-bootstrap.discountIntegral(dataSet.index.get_level_values("Maturity")))

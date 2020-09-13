@@ -5,6 +5,7 @@ import BS
 import bootstrapping
 import sklearn as skl
 from sklearn import preprocessing
+import matplotlib.pyplot as plt
 
 ################################################################ Default dataset interpolator
 #Linear interpolation combined with Nearest neighbor extrapolation
@@ -268,3 +269,37 @@ def inverseTransformColumnGreeksId(originalDf, scaler,
   return pd.Series(columnDerivative , index = columnDerivative.index).rename(columnDerivative.name)
 
 
+def checkCallPutParity(rawData, S0, bootstrap):
+    callPrice = rawData[rawData["OptionType"] == 1.0]["Price"].sort_index().reset_index()
+    putPrice = rawData[rawData["OptionType"] == -1.0]["Price"].sort_index().reset_index()
+    mergeDf = pd.merge(callPrice, putPrice,
+                       left_on=["Maturity", "Strike"],
+                       right_on=["Maturity", "Strike"],
+                       how="inner")
+
+    callPrice = mergeDf["Price_x"]
+    putPrice = mergeDf["Price_y"]
+    strike = pd.Series(mergeDf["Strike"].values, index=mergeDf.index)
+    maturity = pd.Series(mergeDf["Maturity"].values, index=mergeDf.index)
+
+    integratedDividend = np.exp(- bootstrap.dividendIntegral(maturity))
+    integratedDiscount = np.exp(- bootstrap.discountIntegral(maturity))
+
+    callPutForward = (callPrice - putPrice)
+    forward = (S0 * integratedDividend - strike * integratedDiscount)
+    relativeError = np.abs((callPutForward - forward) / callPutForward)
+
+    print("Call put parity max absolute relative error : ",
+          relativeError.max(), " , ",
+          strike[relativeError.idxmax()], " , ",
+          maturity[relativeError.idxmax()])
+    print("Call put parity mean absolute relative error : ",
+          relativeError.mean())
+    plt.plot(maturity.values, relativeError.values)
+
+    tolerance = 1e-4
+    if relativeError.max() > tolerance:
+        print("Call put parity is violated")
+    else:
+        print("Call put parity is respected")
+    return

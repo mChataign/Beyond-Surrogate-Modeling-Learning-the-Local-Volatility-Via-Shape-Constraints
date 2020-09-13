@@ -318,7 +318,7 @@ def loadCBOTData(pathFolder, fileName, asOfDate):
 
     aDf["Converted Expiration Date"] = aDf["Expiration Date"].map(lambda x: formatDate(x))
 
-    aDf = aDf[(aDf["Vol"] > 0.1) & (aDf["Last Sale"] > 0.01) & (aDf["Last Sale.1"] > 0.01)]
+    aDf = aDf[(aDf["Vol"] > 0.1) & (aDf["Last Sale"] > 0.01) & (aDf["Last Sale.1"] > 0.01) & (aDf["IV.1"] > 0.001) & (aDf["IV"] > 0.001)]
     closeDate = aDf["Converted Expiration Date"]
     strike = aDf["Strike"].round(decimals=3)
     maturity = (aDf["Converted Expiration Date"] - pd.Timestamp(asOfDate)).map(lambda x: x.days / 365.25).round(decimals=3)
@@ -356,15 +356,16 @@ def loadCBOTData(pathFolder, fileName, asOfDate):
                                                     maturity)
 
     rawData = pd.concat([callDf, PutDf])
+    rawData = rawData[rawData["OptionType"]==2]
 
-    impvol = BS.vectorizedImpliedVolatilityCalibration(S0,
-                                                       bootstrap,
-                                                       rawData.index.get_level_values("Maturity"),
-                                                       rawData.index.get_level_values("Strike"),
-                                                       rawData["OptionType"],
-                                                       rawData["Price"])
+    #impvol = BS.vectorizedImpliedVolatilityCalibration(S0,
+    #                                                   bootstrap,
+    #                                                   rawData.index.get_level_values("Maturity"),
+    #                                                   rawData.index.get_level_values("Strike"),
+    #                                                   rawData["OptionType"],
+    #                                                   rawData["Price"])
 
-    rawData["ImpliedVol"] =  impvol
+    #rawData["ImpliedVol"] =  impvol
 
     trainingSet, testingSet = selectTrainingSet(rawData)
 
@@ -469,10 +470,10 @@ def loadGPLocVol(pathFolder, GPKernel, bootstrap, S0):
                                                   locVolAreskyFormatted["T"])
 
     #locVolAreskyFormatted["Maturity"] = locVolAreskyFormatted["T"]
-    locVolAreskyFormatted.insert(0, "Maturity", locVolAreskyFormatted["T"])
+    locVolAreskyFormatted.insert(0, "Maturity", locVolAreskyFormatted["T"].round(decimals=3))
 
     #locVolAreskyFormatted["Strike"] = locVolAreskyFormatted["K"]
-    locVolAreskyFormatted.insert(0, "Strike", locVolAreskyFormatted["K"])
+    locVolAreskyFormatted.insert(0, "Strike", locVolAreskyFormatted["K"].round(decimals=3))
 
     #locVolAreskyFormatted["ChangedStrike"] = pd.Series(changedVarAresky[0],
     #                                                   index=locVolAreskyFormatted.index)

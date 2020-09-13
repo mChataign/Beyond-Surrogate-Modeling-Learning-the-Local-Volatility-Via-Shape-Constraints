@@ -311,7 +311,12 @@ class NelsonSiegelSvenssonCalibrator:
             print("Parameters ; beta : ", self.beta, " ; tau : ", self.tau)
             print("Error : ", res.fun)
 
-
+def interpLinear(formerGrid, formerValue, newGrid):
+    f = interpolate.interp1d(formerGrid,
+                             formerValue,  # riskFreeCurve[name],
+                             fill_value='extrapolate',
+                             kind='linear')
+    return f(newGrid)
 
 class bootstrappingLinReg(bootstrapping):
     def __init__(self,
@@ -331,6 +336,7 @@ class bootstrappingLinReg(bootstrapping):
                                    1000)
         self.nelsonModel = self.nelsonSiegelInterp(usedDiscount)
         usedDiscount = pd.Series(self.nelsonModel.eval(extendedGrid), index = extendedGrid)
+        #usedDiscount = pd.Series(interpLinear( usedDiscount.index.values, usedDiscount.values, extendedGrid), index=extendedGrid)
         plt.plot(usedDiscount.index.values,
                  usedDiscount.values)
         plt.title("Interpolated discount yield curve")
