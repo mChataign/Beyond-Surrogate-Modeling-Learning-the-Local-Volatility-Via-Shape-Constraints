@@ -6,8 +6,11 @@ Authors: Chataigner, Crepey and Dixon. If this code is used for research purpose
 
 # Overview
 Notebook dupireNN.ipynb implements neural network local volatility from price with the Dupire formula.
+
 Notebook dupireNN.ipynb implements neural network local volatility from price with the Dupire formula but without any constraint.
+
 Notebook NeuralNetwork.ipynb implements neural network local volatility from implied volatility with neural network.
+
 Notebook LocVolGatheral.ipynb implements neural network local volatility from implied volatility with SSVI.
 
 The code folder contains python script for our library :
