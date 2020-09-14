@@ -367,8 +367,9 @@ def loadCBOTData(pathFolder, fileName, asOfDate):
 
     #rawData["ImpliedVol"] =  impvol
 
+    filteredData = removeDataViolatingStaticArbitrage(rawData.reset_index())
+    rawData = filteredData.set_index(["Strike", "Maturity"])
     trainingSet, testingSet = selectTrainingSet(rawData)
-
 
 
     trainingDataSet = dataSetConstruction.generateData(trainingSet["ImpliedVol"],
@@ -383,6 +384,7 @@ def loadCBOTData(pathFolder, fileName, asOfDate):
                                                       localVolatilityRef = None,
                                                       priceDf=testingSet.reset_index(),
                                                       spotValue = False)
+
 
     return trainingDataSet, testingDataSet, bootstrap, S0
 
@@ -490,5 +492,30 @@ def loadGPLocVol(pathFolder, GPKernel, bootstrap, S0):
     return locVolAreskyFormatted[~locVolAreskyFormatted.index.duplicated(keep='first')]
 
 
-def removeDataViolatingStaticArbitrage(df):
+def removeDataViolatingStaticArbitrageStep(df):
+    arbitrableRows = []
+    for strike in df.rename({"Strike": "StrikeColumn"}, axis=1).groupby("StrikeColumn"):
+        impliedTotVariance = np.square(strike[1]["ImpliedVol"]) * strike[1]["Maturity"]
+        sortedStrike = pd.Series(impliedTotVariance.values,
+                                 index=strike[1]["Maturity"].values).sort_index().diff().dropna()
+        thetaViolation = sortedStrike.diff().dropna()
+        if (thetaViolation < 0).sum() > 0:
+            arbitrableMaturities = thetaViolation[(thetaViolation < 0)].index
+            arbitrableRows.append(strike[1][ strike[1]["Maturity"].isin(arbitrableMaturities) ])
+            #plt.plot(strike[1]["Maturity"].values, impliedTotVariance.values, label=str(strike[0]))
+            #print("Strike : ", strike[0], " NbViolations : ", (thetaViolation < 0).sum())
+            #print((thetaViolation < 0))
+            #print(sortedStrike)
+    return df.drop(pd.concat(arbitrableRows).index) if (len(arbitrableRows) > 0) else df
 
+def removeDataViolatingStaticArbitrage(df):
+    formerDf = df
+    condition = True
+    maxNbLoop = 100
+    iterNb = 0
+    while condition and (iterNb < maxNbLoop) :
+        dfStep = removeDataViolatingStaticArbitrageStep(formerDf)
+        condition = (dfStep.shape[0] < formerDf.shape[0]) and (dfStep.shape[0] > 0)
+        formerDf = dfStep
+        iterNb = iterNb + 1
+    return dfStep
