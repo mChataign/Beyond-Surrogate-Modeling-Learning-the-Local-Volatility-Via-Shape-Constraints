@@ -490,4 +490,5 @@ def loadGPLocVol(pathFolder, GPKernel, bootstrap, S0):
     return locVolAreskyFormatted[~locVolAreskyFormatted.index.duplicated(keep='first')]
 
 
+def removeDataViolatingStaticArbitrage(df):
 

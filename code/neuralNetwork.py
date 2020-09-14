@@ -1632,6 +1632,7 @@ def NNArchitectureHardConstrainedDugas(n_units, strikeTensor,
                                        strikeMinTensor,
                                        vegaRef,
                                        hyperparameters,
+                                       scaler,
                                        IsTraining=True):
     # First layer
     hidden1S = convexDugasLayer(n_units=n_units,
@@ -1658,3 +1659,122 @@ def NNArchitectureHardConstrainedDugas(n_units, strikeTensor,
                                                        IsTraining=IsTraining)
 
     return out, [out, dupireVol, theta, hK, dupireVar], [], evalAndFormatDupireResult
+
+
+def selectHyperparameters(hyperparameters, parameterOfInterest, modelFactory,
+                          modelName, activateDupireReg, scaledDataSet,
+                          scaler,
+                          trainedOnPrice = True,
+                          logGrid=True):
+    oldValue = hyperparameters[parameterOfInterest]
+    gridValue = oldValue * (
+        np.exp(np.log(10) * np.array([-2, -1, 0, 1, 2])) if logGrid else np.array([0.2, 0.5, 1, 2, 5]))
+
+    oldNbEpochs = hyperparameters["maxEpoch"]
+    hyperparameters["maxEpoch"] = int(oldNbEpochs / 10)
+    trainLoss = {}
+    arbitrageViolation = {}
+    for v in gridValue:
+        hyperparameters[parameterOfInterest] = int(v)
+        if trainedOnPrice :
+            pred, volLoc, theta, gammaK, loss = create_train_model(modelFactory,
+                                                                   scaledDataSet,
+                                                                   activateDupireReg,
+                                                                   hyperparameters,
+                                                                   scaler,
+                                                                   modelName=modelName)
+        else :
+            pred, volLoc, theta, gammaK, loss = create_train_model_gatheral(modelFactory,
+                                                                            scaledDataSet,
+                                                                            activateDupireReg,
+                                                                            hyperparameters,
+                                                                            scaler,
+                                                                            modelName=modelName)
+
+        nbArbitrageViolation = np.sum((theta <= 0)) + np.sum((gammaK <= 0))
+        trainLoss[v] = min(loss)
+        arbitrageViolation[v] = nbArbitrageViolation
+        print()
+        print()
+
+    hyperparameters["maxEpoch"] = oldNbEpochs
+    hyperparameters[parameterOfInterest] = oldValue
+    # Plot curves
+
+    fig, ax1 = plt.subplots()
+    if logGrid:
+        plt.xscale('symlog')
+
+    color = 'tab:red'
+    ax1.set_xlabel('Value')
+    ax1.set_ylabel('Loss', color=color)
+    ax1.plot(pd.Series(trainLoss), color=color)
+    ax1.tick_params(axis='y', labelcolor=color)
+
+    ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
+
+    color = 'tab:blue'
+    ax2.set_ylabel('Arbitrage violation', color=color)  # we already handled the x-label with ax1
+    ax2.plot(pd.Series(arbitrageViolation), color=color)
+    ax2.tick_params(axis='y', labelcolor=color)
+
+    fig.tight_layout()  # otherwise the right y-label is slightly clipped
+    plt.show()
+
+    return
+
+
+def selectHyperparametersRandom(hyperparameters,
+                                parametersOfInterest,
+                                modelFactory,
+                                modelName,
+                                activateDupireReg,
+                                nbAttempts,
+                                scaledDataSet,
+                                scaler,
+                                trainedOnPrice = True,
+                                logGrid=True):
+    oldValue = {}
+    for k in parametersOfInterest:
+        oldValue[k] = hyperparameters[k]
+
+    gridValue = np.exp(np.log(10) * np.array([-2, -1, 0, 1, 2])) if logGrid else np.array([0.2, 0.5, 1, 2, 5])
+
+    oldNbEpochs = hyperparameters["maxEpoch"]
+    hyperparameters["maxEpoch"] = int(oldNbEpochs / 10)
+    trainLoss = {}
+    arbitrageViolation = {}
+    nbTry = nbAttempts
+    for v in range(nbTry):
+        combination = np.random.randint(5, size=len(parametersOfInterest))
+        for p in range(len(parametersOfInterest)):
+            hyperparameters[parametersOfInterest[p]] = oldValue[parametersOfInterest[p]] * gridValue[
+                int(combination[p])]
+            print(parametersOfInterest[p], " : ", hyperparameters[parametersOfInterest[p]])
+        if trainedOnPrice :
+            pred, volLoc, theta, gammaK, loss = create_train_model(modelFactory,
+                                                                   scaledDataSet,
+                                                                   activateDupireReg,
+                                                                   hyperparameters,
+                                                                   scaler,
+                                                                   modelName=modelName)
+        else :
+            pred, volLoc, theta, gammaK, loss = create_train_model_gatheral(modelFactory,
+                                                                            scaledDataSet,
+                                                                            activateDupireReg,
+                                                                            hyperparameters,
+                                                                            scaler,
+                                                                            modelName=modelName)
+
+        nbArbitrageViolation = np.sum((theta <= 0)) + np.sum((gammaK <= 0))
+        print("loss : ", min(loss))
+        print("nbArbitrageViolation : ", nbArbitrageViolation)
+        print()
+        print()
+        print()
+
+    hyperparameters["maxEpoch"] = oldNbEpochs
+    for k in parametersOfInterest:
+        hyperparameters[k] = oldValue[k]
+
+    return
