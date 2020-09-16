@@ -511,7 +511,7 @@ def removeDataViolatingStaticArbitrageStep(df):
 def removeDataViolatingStaticArbitrage(df):
     formerDf = df
     condition = True
-    maxNbLoop = 100
+    maxNbLoop = 500
     iterNb = 0
     while condition and (iterNb < maxNbLoop) :
         dfStep = removeDataViolatingStaticArbitrageStep(formerDf)

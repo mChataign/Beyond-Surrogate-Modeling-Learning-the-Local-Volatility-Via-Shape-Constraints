@@ -105,11 +105,14 @@ def fit_ssvi(phifun=None, log_moneyness=None, theta_expanded=None, total_implied
         #parameters[:, n], funValue[n,1] = fmincon(targetfun, param0, 
         #                                          [], [], [], [], 
         #                                          lb, ub, c, options)
-        constraints = (scipy.optimize.NonlinearConstraint(c, 
-                                                          -np.inf, 0,
-                                                          jac=cJac,
-                                                          hess=cHess,
-                                                          keep_feasible=False))
+        #constraints = (scipy.optimize.NonlinearConstraint(c,
+        #                                                  -np.inf, 0,
+        #                                                  jac=cJac,
+        #                                                  hess=cHess,
+        #                                                  keep_feasible=False))
+        constraints = {"type" : "ineq",
+                       "fun" : lambda x : np.array([ - c(x) ]),
+                       "jac" : lambda x : np.array([ - cJac(x) ])}
         res = scipy.optimize.minimize(targetfun, param0, 
                                       method= "SLSQP",#"L-BFGS-B", #"trust-constr",#"trust-constr",
                                       bounds=list(zip(lb, ub)),#[lb, ub],
@@ -146,24 +149,29 @@ def fitfunctionSSVI(x=None, phifun=None, log_moneyness=None, theta=None, total_i
 def mycon(x=None, phifun=None):
     ceq = 0
     __switch_0__ = phifun
+    rho = x[0]
     if __switch_0__ == 'heston_like':
-        c = 1 + abs(x[0]) - 4 * x[1]    #by construction, rho is the first parameter, lamda the second
+        _lambda = x[1]
+        c = 1 + abs(rho) - 4 * _lambda    #by construction, rho is the first parameter, lamda the second
     elif __switch_0__ == 'power_law':
-        c = x[1] * (1 + abs(x[0])) - 2    #by construction, rho is the first parameter, lamda the second
+        eta = x[1]
+        c = eta * (1 + abs(rho)) - 2    #by construction, rho is the first parameter, lamda the second
     else:
         raise Exception('Incorrect function for phi') 
-    return (c, ceq)
+    return c#(c, ceq)
 
 def myconJac(x=None, phifun=None):
     ceq = np.array([0,0])
     __switch_0__ = phifun
+    rho = x[0]
     if __switch_0__ == 'heston_like':
-        c = np.array([np.sign(x[0]), 4])    #by construction, rho is the first parameter, lamda the second
+        c = np.array([np.sign(rho), -4])    #by construction, rho is the first parameter, lamda the second
     elif __switch_0__ == 'power_law':
-        c = np.array([x[1] * np.sign(x[0]), (1 + abs(x[0]))])  #by construction, rho is the first parameter, lamda the second
+        eta = x[1]
+        c = np.array([eta * np.sign(rho), (1 + abs(rho))])  #by construction, rho is the first parameter, lamda the second
     else:
         raise Exception('Incorrect function for phi')
-    return (c, ceq)
+    return c#(c, ceq)
 
 def myconHess(x=None, v=None, phifun=None):
     ceq = np.array([[0,0],[0,0]])
@@ -207,18 +215,23 @@ def fit_svi(x0=None, k=None,
                                          param_slice_before,
                                          param_slice_after)
     # only optimize first three variables, final two are set by no-arbitrage condition
-    x0 = x0[:3]
+
+    x0 = x0[:3] # order of parameters [v, psi, p, c, vt]
     lb = lb[:3]
     ub = ub[:3]
     # linear inequality: -p <= 2*psi
-    A = np.array([0 , -2, -1])
-    b = 0
+    #A = np.array([0 , -2, -1])
+    A = np.array([0, 2, 1])
+    #b = 0
     #print("slice_before",slice_before)
     parameters = None
     fval = np.inf
-    constraints = (scipy.optimize.LinearConstraint(np.expand_dims(A, axis=0), 
-                                                   b-small, b+small, 
-                                                   keep_feasible=False))
+    #constraints = (scipy.optimize.LinearConstraint(np.expand_dims(A, axis=0),
+    #                                               b-small, b+small,
+    #                                               keep_feasible=False))
+    constraints = {"type" : "ineq",
+                   "fun" : lambda x : np.array([ A @ x ]),
+                   "jac" : lambda x : np.array([ [0, 2, 1] ])}
     nbRestart = 50
     for i in np.arange(nbRestart):
         res = scipy.optimize.minimize(targetfun, x0, 
@@ -287,28 +300,33 @@ def fitfunctionSVI(x=None, k=None,
     # calculate value of objective function
     value = norm(total_implied_variance - model_total_implied_variance)
     # if the current model total implied variance crosses the earlier or later slice, set value to 1e6
-    if not isempty(slice_before) and any(model_total_implied_variance < slice_before):
-        value = 1e6
+    #if not isempty(slice_before) and any(model_total_implied_variance < slice_before):
+    #    value = 1e6
     
-    if not isempty(slice_after) and any(model_total_implied_variance > slice_after):
-        value = 1e6
+    #if not isempty(slice_after) and any(model_total_implied_variance > slice_after):
+    #    value = 1e6
     
-    if np.isnan(value):
-        value = 1e6
+    #if np.isnan(value):
+    #    value = 1e6
     
-    if not isempty(gridPenalization) and ((not isempty(param_slice_before)) or 
-                                          (not isempty(param_slice_after))):
+    #if not isempty(gridPenalization) and ((not isempty(param_slice_before)) or
+    #                                      (not isempty(param_slice_after))):
+    if not isempty(gridPenalization) :
         model_total_implied_variance,_ = svi_jumpwing(gridPenalization, newX, tau)
         
         if not isempty(param_slice_before):
             before_total_implied_variance,_ = svi_jumpwing(gridPenalization, param_slice_before, tau)
             if any(model_total_implied_variance < before_total_implied_variance) :
-                value = 1e6    
+                #value = 1e6
+                crossedness = np.amax(np.maximum( before_total_implied_variance - model_total_implied_variance, 0))
+                value += crossedness
                 
         if not isempty(param_slice_after):
             after_total_implied_variance,_ = svi_jumpwing(gridPenalization, param_slice_after, tau)
             if any(model_total_implied_variance > after_total_implied_variance) :
-                value = 1e6    
+                #value = 1e6
+                crossedness = np.amax(np.maximum( model_total_implied_variance - after_total_implied_variance, 0))
+                value =+ crossedness
     
     return value
 
@@ -460,7 +478,7 @@ def heston_like(theta=None, param=None):
     # Heston-like parameterization
     _lambda = param#[0]
     value = np.multiply(1. / (_lambda * theta), 
-                        np.divide(1 - (1 - exp(-_lambda * theta)), (_lambda * theta)))
+                        1 - np.divide( (1 - exp(-_lambda * theta)), (_lambda * theta) ) )
     return value
 
 
@@ -471,6 +489,7 @@ def power_law(theta=None, param=None):
     value = np.divide(eta, 
                       np.multiply(np.power(theta, (gamma)), 
                                   np.power((1 + theta), (1 - gamma))))
+    #value = eta * np.power(theta, - gamma)
     return value 
 
 
@@ -1091,11 +1110,12 @@ class SSVIModel:
         #dataSet = dataSet.copy()
         forward = np.exp(-filteredDf["logMoneyness"]) * filteredDf["Strike"]
         # round for float comparaison
-        self.forward_theta = (forward[filteredDf["Maturity"].isin(self.maturities)]
-                              .round(decimals=6)
-                              .droplevel("Strike")
-                              .drop_duplicates()
-                              .loc[self.maturities].values)
+        self.forward_theta = forward.groupby("Maturity").mean().values
+        #self.forward_theta = (forward[filteredDf["Maturity"].isin(self.maturities)]
+        #                      .round(decimals=6)
+        #                      .droplevel("Strike")
+        #                      .drop_duplicates()
+        #                      .loc[self.maturities].values)
         self.interestrate_theta = self.bootstrap.discountIntegral(self.maturities) / self.maturities
 
         #forward_interp = interp1(self.maturities,
