@@ -472,6 +472,7 @@ def modelSummaryGatheral(totalVariance,
                          logMoneynessScale=False):
     nbArbitrageViolations = ((delta_T < 0) + (gamma_K < 0)).sum()
     print("Number of static arbitrage violations : ", nbArbitrageViolations)
+    print("Arbitrable total variance : ", totalVariance[((delta_T < 0) + (gamma_K < 0))])
 
     refDataset = benchDataset.loc[totalVariance.index]
     if logMoneynessScale:
@@ -509,7 +510,7 @@ def modelSummaryGatheral(totalVariance,
                         yMin=yMinScaled,
                         yMax=yMaxScaled)
 
-    impliedVolPred = np.sqrt(totalVariancePred)  # np.sqrt(totalVariance / refDataset["Maturity"])
+    impliedVolPred = np.sqrt(totalVariancePred / benchDatasetScaled["Maturity"]) # np.sqrt(totalVariance / refDataset["Maturity"])
     predictionDiagnosis(impliedVolPred,
                         benchDatasetScaled["ImpliedVol"],
                         "Implied volatility",

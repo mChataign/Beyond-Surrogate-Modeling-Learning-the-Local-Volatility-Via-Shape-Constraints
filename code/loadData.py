@@ -213,14 +213,24 @@ def selectTrainingSet(rawData):
     maxTrainingMaturities = maturities[-3]
     filteredData = rawData[rawData.index.get_level_values("Maturity") <= maxTrainingMaturities]
 
-    trainingPercentage = 0.2
+    trainingPercentage = 0.5
     nbTrainingObs = int(rawData.shape[0] * trainingPercentage)
     sampledPercentage = nbTrainingObs / filteredData.shape[0]
 
-    trainingSet = filteredData.sample(n=nbTrainingObs, axis=0)
+    selectedTrainingRow = []
+
+    for maturityDf in filteredData.groupby(level="Maturity") :
+        if maturityDf[1].shape[0] > 1 :
+            nbPointsToDraw = max(int(maturityDf[1].shape[0] * sampledPercentage), 2)
+            selectedTrainingRow.append(maturityDf[1].sample(n=nbPointsToDraw, axis=0))
+        elif (maturityDf[0] == filteredData["Maturity"].min()) or (maturityDf[0] == filteredData["Maturity"].max()): #Keep all data
+            selectedTrainingRow.append(smile[1])
+
+    #trainingSet = filteredData.sample(n=nbTrainingObs, axis=0)
+    trainingSet = filteredData.loc[pd.concat(selectedTrainingRow).index]
     testingSet = rawData.drop(trainingSet.index)
 
-    return trainingSet, testingSet
+    return trainingSet.sort_index(), testingSet.sort_index()
 
 ###################################################################### Main functions
 def loadDataFromCSV(pathFolder, datFile):
