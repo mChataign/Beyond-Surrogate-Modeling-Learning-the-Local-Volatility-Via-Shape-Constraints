@@ -7,6 +7,7 @@ import tensorflow.compat.v1.keras.activations as Act
 from functools import partial
 import time
 import dataSetConstruction
+import bootstrapping
 import numpy as np
 import pandas as pd
 tf.disable_v2_behavior()
@@ -22,7 +23,7 @@ layerFactory = {}
 
 def resetTensorflow():
     tf.reset_default_graph()
-    layerFactory = {}
+    layerFactory.clear()
     return
 # Format result from training step
 def evalAndFormatResult(price, loss, dataSet, scaler):
@@ -1096,11 +1097,13 @@ def create_train_model_gatheral(NNFactory,
 
     #Grid on which is applied Penalization
     t = np.linspace(scaler.data_min_[dataSet.columns.get_loc("Maturity")],
-                    2 * scaler.data_max_[dataSet.columns.get_loc("Maturity")],
+                    4 * scaler.data_max_[dataSet.columns.get_loc("Maturity")],
                     num=100)
-    k = np.linspace(scaler.data_min_[dataSet.columns.get_loc("logMoneyness")],
-                    scaler.data_max_[dataSet.columns.get_loc("logMoneyness")],
-                    num=100)
+    #k = np.linspace(scaler.data_min_[dataSet.columns.get_loc("logMoneyness")],
+    #                scaler.data_max_[dataSet.columns.get_loc("logMoneyness")],
+    #                num=50)
+    #t = np.linspace(0, 4, num=100)
+    k = np.linspace(0, 1, num=50)
     penalizationGrid = np.meshgrid(k, t)
     tPenalization = np.ravel(penalizationGrid[1])
     kPenalization = np.ravel(penalizationGrid[0])
@@ -1181,13 +1184,13 @@ def create_train_model_gatheral(NNFactory,
 
     def createFeedDict(batch):
         batchSize = batch.shape[0]
-        feedDict = {Moneyness: scaledInput["ChangedStrike"].values.reshape(batchSize, 1),#scaledInput["logMoneyness"].loc[batch.index].drop_duplicates().values.reshape(batchSize, 1),
+        feedDict = {Moneyness: scaledInput["logMoneyness"].values.reshape(batchSize, 1),#scaledInput["logMoneyness"].loc[batch.index].drop_duplicates().values.reshape(batchSize, 1),
                     Maturity: batch["Maturity"].values.reshape(batchSize, 1),
                     y: batch["ImpliedVol"].values.reshape(batchSize, 1),
                     MoneynessPenalization : np.expand_dims(kPenalization, 1),
                     MaturityPenalization : np.expand_dims(tPenalization, 1),
                     learningRateTensor: learningRate,
-                    vegaRef: np.ones_like(batch["ChangedStrike"].values.reshape(batchSize, 1)),
+                    vegaRef: np.ones_like(batch["logMoneyness"].values.reshape(batchSize, 1)),
                     vegaRefPenalization : np.ones_like(np.expand_dims(kPenalization, 1))}
         return feedDict
 
@@ -1292,11 +1295,13 @@ def create_eval_model_gatheral(NNFactory,
 
     #Grid on which is applied Penalization
     t = np.linspace(scaler.data_min_[dataSet.columns.get_loc("Maturity")],
-                    2 * scaler.data_max_[dataSet.columns.get_loc("Maturity")],
+                    4 * scaler.data_max_[dataSet.columns.get_loc("Maturity")],
                     num=100)
-    k = np.linspace(scaler.data_min_[dataSet.columns.get_loc("logMoneyness")],
-                    scaler.data_max_[dataSet.columns.get_loc("logMoneyness")],
-                    num=100)
+    #k = np.linspace(scaler.data_min_[dataSet.columns.get_loc("logMoneyness")],
+    #                scaler.data_max_[dataSet.columns.get_loc("logMoneyness")],
+    #                num=50)
+    #t = np.linspace(0, 4, num=100)
+    k = np.linspace(0, 1, num=50)
     penalizationGrid = np.meshgrid(k, t)
     tPenalization = np.ravel(penalizationGrid[1])
     kPenalization = np.ravel(penalizationGrid[0])
@@ -1377,13 +1382,13 @@ def create_eval_model_gatheral(NNFactory,
 
     def createFeedDict(batch):
         batchSize = batch.shape[0]
-        feedDict = {Moneyness: scaledInput["ChangedStrike"].values.reshape(batchSize, 1),#scaledInput["logMoneyness"].loc[batch.index].drop_duplicates().values.reshape(batchSize, 1),
+        feedDict = {Moneyness: scaledInput["logMoneyness"].values.reshape(batchSize, 1),#scaledInput["logMoneyness"].loc[batch.index].drop_duplicates().values.reshape(batchSize, 1),
                     Maturity: batch["Maturity"].values.reshape(batchSize, 1),
                     y: batch["ImpliedVol"].values.reshape(batchSize, 1),
                     MoneynessPenalization : np.expand_dims(kPenalization,1),
                     MaturityPenalization : np.expand_dims(tPenalization,1),
                     learningRateTensor: learningRate,
-                    vegaRef: np.ones_like(batch["ChangedStrike"].values.reshape(batchSize, 1)),
+                    vegaRef: np.ones_like(batch["logMoneyness"].values.reshape(batchSize, 1)),
                     vegaRefPenalization : np.ones_like(np.expand_dims(kPenalization,1))}
         return feedDict
 
@@ -1415,10 +1420,12 @@ def evalVolLocaleGatheral(NNFactory,
                           strikes,
                           maturities,
                           dataSet,
-                          hyperParameters,
+                          hyperparameters,
                           scaler,
+                          bootstrap,
+                          S0,
                           modelName="bestModel"):
-    hidden_nodes = hyperParameters["nbUnits"]
+    hidden_nodes = hyperparameters["nbUnits"]
 
     # Reset the graph
     resetTensorflow()
@@ -1435,11 +1442,13 @@ def evalVolLocaleGatheral(NNFactory,
 
     #Grid on which is applied Penalization
     t = np.linspace(scaler.data_min_[dataSet.columns.get_loc("Maturity")],
-                    2 * scaler.data_max_[dataSet.columns.get_loc("Maturity")],
+                    4 * scaler.data_max_[dataSet.columns.get_loc("Maturity")],
                     num=100)
-    k = np.linspace(scaler.data_min_[dataSet.columns.get_loc("logMoneyness")],
-                    scaler.data_max_[dataSet.columns.get_loc("logMoneyness")],
-                    num=100)
+    #k = np.linspace(scaler.data_min_[dataSet.columns.get_loc("logMoneyness")],
+    #                scaler.data_max_[dataSet.columns.get_loc("logMoneyness")],
+    #                num=50)
+    #t = np.linspace(0, 4, num=100)
+    k = np.linspace(0, 1, num=50)
     penalizationGrid = np.meshgrid(k, t)
     tPenalization = np.ravel(penalizationGrid[1])
     kPenalization = np.ravel(penalizationGrid[0])
@@ -1488,9 +1497,9 @@ def evalVolLocaleGatheral(NNFactory,
     sess = tf.Session()
     sess.run(init)
     n = strikes.shape[0]
-    changedVar = changeOfVariable(strikes, maturities)
+    changedVar = bootstrap.changeOfVariable(strikes, maturities)
 
-    moneyness = np.log(changedVar[0] / S0[0])
+    moneyness = np.log(changedVar[0] / S0)
     scaledMoneyness = (moneyness - minColFunction) / scF
 
     def createFeedDict(m, t):
