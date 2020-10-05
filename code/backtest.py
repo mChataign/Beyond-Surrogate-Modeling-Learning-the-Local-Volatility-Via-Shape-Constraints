@@ -37,7 +37,7 @@ def MonteCarloPricer(S0,
       drift = np.ones(nbPaths) * (mu - np.square(volLocale) / 2.0) 
       logReturn[i + 1, :] = logReturn[i,:] + drift * timeStep + gaussianNoise[i,:] * volLocale
   SFinal = S0 * np.exp(logReturn[-1, :])
-  return np.mean(np.maximum(Strike - SFinal, 0))
+  return (np.mean(np.maximum(Strike - SFinal, 0)), np.std(np.maximum(Strike - SFinal, 0)))
 
 def MonteCarloPricerVectorized(S, 
                                dataSet,
@@ -49,7 +49,12 @@ def MonteCarloPricerVectorized(S,
                                      bootstrap,
                                      nbPaths, nbTimeStep, 
                                      volLocaleFunction)
-  return dataSet.apply(func, axis=1) * np.exp(-bootstrap.discountIntegral(dataSet.index.get_level_values("Maturity")))
+  res = dataSet.apply(func, axis=1)
+  priceMC = res.map(lambda x : x[0]) * np.exp(-bootstrap.discountIntegral(dataSet.index.get_level_values("Maturity")))
+  stdMC = res.map(lambda x : x[1])
+  return pd.DataFrame(np.vstack([priceMC.values, stdMC.values]).T,
+                      columns=["Price", "stdPrice"],
+                      index=priceMC.index)
 
 def loadMCPrices(fileName, parseHeader=None):
     renameDict = {1: "Maturity", 

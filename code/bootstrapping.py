@@ -584,3 +584,58 @@ class bootstrappingAveragedExcel(bootstrappingAveraged):
 
 
 
+class bootstrappingFromData(bootstrapping):
+    def __init__(self,
+                 dfCurve):
+
+        def zeroYield(x, t):
+            zeroCouponPrice = np.exp(-x)
+            if t == 0:
+                return 0
+            if (float(t) < 1):
+                return (1 / zeroCouponPrice - 1) / float(t)
+            else:
+                return (zeroCouponPrice ** (-1 / float(t)) - 1)
+
+        self.riskFreeCurve = dfCurve["riskCurvespline"]
+        pairedData = zip(dfCurve["riskFreeIntegral"].values,
+                         dfCurve["riskFreeIntegral"].index)
+        yieldCurve = pd.Series(list(map(lambda x: zeroYield(x[0], x[1]), pairedData)),
+                               dfCurve["riskFreeIntegral"].index)
+        self.yieldCurve = yieldCurve
+        self.interpolatedIntegral = dfCurve["riskFreeIntegral"]
+
+        self.spreadDividend = dfCurve["divSpline"]
+        pairedData = zip(dfCurve["divSpreadIntegral"].values,
+                         dfCurve["divSpreadIntegral"].index)
+        yieldDividend = pd.Series(list(map(lambda x: zeroYield(x[0], x[1]), pairedData)),
+                                  dfCurve["divSpreadIntegral"].index)
+        self.yieldDividend = yieldDividend
+        self.interpolatedDivIntegral = dfCurve["divSpreadIntegral"]
+
+
+        self.riskCurvespline = interpolate.interp1d(self.riskFreeCurve.index,
+                                                    self.riskFreeCurve,  # riskFreeCurve[name],
+                                                    fill_value='extrapolate',
+                                                    kind='next')
+        self.yieldCurvespline = interpolate.interp1d(self.yieldCurve.index,
+                                                     self.yieldCurve,  # riskFreeCurve[name],
+                                                     fill_value='extrapolate',
+                                                     kind='next')
+        self.riskFreeIntegral = interpolate.interp1d(self.interpolatedIntegral.index,
+                                                     self.interpolatedIntegral,  # riskFreeCurve[name],
+                                                     fill_value='extrapolate',
+                                                     kind='next')
+
+        self.divSpline = interpolate.interp1d(self.spreadDividend.index,
+                                              self.spreadDividend,  # riskFreeCurve[name],
+                                              fill_value='extrapolate',
+                                              kind='next')
+        self.divYieldSpline = interpolate.interp1d(self.yieldDividend.index,
+                                                   self.yieldDividend,  # riskFreeCurve[name],
+                                                   fill_value='extrapolate',
+                                                   kind='next')
+        self.divSpreadIntegral = interpolate.interp1d(self.interpolatedDivIntegral.index,
+                                                      self.interpolatedDivIntegral,  # riskFreeCurve[name],
+                                                      fill_value='extrapolate',
+                                                      kind='next')

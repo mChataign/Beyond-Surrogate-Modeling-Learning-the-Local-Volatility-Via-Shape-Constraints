@@ -123,9 +123,12 @@ def create_train_model(NNFactory,
     # Placeholders for input and output data
     Strike = tf.placeholder(tf.float32, [None, 1])
     Maturity = tf.placeholder(tf.float32, [None, 1])
+    StrikePenalization = tf.placeholder(tf.float32, [None, 1])
+    MaturityPenalization = tf.placeholder(tf.float32, [None, 1])
     factorPrice = tf.placeholder(tf.float32, [None, 1])
     y = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='y')
-    vegaRef = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='vegaRef')
+    vegaRef = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='vegaRef'
+    vegaRefPenalization = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='vegaRefPenalization')
     learningRateTensor = tf.placeholder(tf.float32, [])
 
     # Get scaling for strike
@@ -135,6 +138,22 @@ def create_train_model(NNFactory,
     scF = (maxColFunction - minColFunction)
     scaleTensor = tf.constant(scF, dtype=tf.float32)
     strikeMinTensor = tf.constant(minColFunction, dtype=tf.float32)
+
+    #Grid on which is applied Penalization
+    t = np.linspace(scaler.data_min_[dataSet.columns.get_loc("Maturity")],
+                    4 * scaler.data_max_[dataSet.columns.get_loc("Maturity")],
+                    num=100)
+    #k = np.linspace(scaler.data_min_[dataSet.columns.get_loc("logMoneyness")],
+    #                scaler.data_max_[dataSet.columns.get_loc("logMoneyness")],
+    #                num=50)
+    #t = np.linspace(0, 4, num=100)
+
+    k = np.linspace((- 0.5 * minColFunction) / scF,
+                    (2.0 * maxColFunction - minColFunction) / scF,
+                    num=50)
+    penalizationGrid = np.meshgrid(k, t)
+    tPenalization = np.ravel(penalizationGrid[1])
+    kPenalization = np.ravel(penalizationGrid[0])
 
     price_pred_tensor = None
     TensorList = None
@@ -151,6 +170,16 @@ def create_train_model(NNFactory,
                        hyperparameters),
             vegaRef,
             hyperparameters)
+        price_pred_tensor1, TensorList1, penalizationList1, formattingFunction1 = addDupireRegularisation(
+            *NNFactory(hidden_nodes,
+                       StrikePenalization,
+                       MaturityPenalization,
+                       scaleTensor,
+                       strikeMinTensor,
+                       vegaRefPenalization,
+                       hyperparameters),
+            vegaRefPenalization,
+            hyperparameters)
     else:
         price_pred_tensor, TensorList, penalizationList, formattingFunction = NNFactory(hidden_nodes,
                                                                                         Strike,
@@ -159,25 +188,32 @@ def create_train_model(NNFactory,
                                                                                         strikeMinTensor,
                                                                                         vegaRef,
                                                                                         hyperparameters)
+        price_pred_tensor1, TensorList1, penalizationList1, formattingFunction1 = NNFactory(hidden_nodes,
+                                                                                            StrikePenalization,
+                                                                                            MaturityPenalization,
+                                                                                            scaleTensor,
+                                                                                            strikeMinTensor,
+                                                                                            vegaRefPenalization,
+                                                                                            hyperparameters)
 
     price_pred_tensor_sc = tf.multiply(factorPrice, price_pred_tensor)
     TensorList[0] = price_pred_tensor_sc
 
     # Define a loss function
     pointwiseError = tf.reduce_mean(tf.abs(price_pred_tensor_sc - y) / vegaRef)
-    errors = tf.add_n([pointwiseError] + penalizationList)
+    errors = tf.add_n([pointwiseError] + penalizationList1) #tf.add_n([pointwiseError] + penalizationList)
     loss = tf.log(tf.reduce_mean(errors))
 
     # Define a train operation to minimize the loss
     lr = learningRate
 
-    # optimizer = tf.train.AdamOptimizer(learning_rate=learningRateTensor)
+     optimizer = tf.train.AdamOptimizer(learning_rate=learningRateTensor)
     # optimizer = tf.train.MomentumOptimizer(learning_rate=learningRateTensor,
     #                                       momentum=0.9,
     #                                       use_nesterov=True)
-    optimizer = tf.train.RMSPropOptimizer(learning_rate=learningRateTensor,
-                                          momentum=0.9,
-                                          decay=0.9)
+    #optimizer = tf.train.RMSPropOptimizer(learning_rate=learningRateTensor,
+    #                                      momentum=0.9,
+    #                                      decay=0.9)
     train = optimizer.minimize(loss)
     # optimizer = tf.keras.optimizers.Nadam(learning_rate=learningRateTensor)
     # train = optimizer.minimize(loss, var_list = tf.trainable_variables())
@@ -198,9 +234,12 @@ def create_train_model(NNFactory,
         feedDict = {Strike: scaledInput["ChangedStrike"].values.reshape(batchSize, 1),#scaledInput["ChangedStrike"].loc[batch.index].values.reshape(batchSize, 1),
                     Maturity: batch["Maturity"].values.reshape(batchSize, 1),
                     y: batch["Price"].values.reshape(batchSize, 1),
+                    StrikePenalization : np.expand_dims(kPenalization, 1),
+                    MaturityPenalization : np.expand_dims(tPenalization, 1),
                     factorPrice: batch["DividendFactor"].values.reshape(batchSize, 1),
                     learningRateTensor: learningRate,
-                    vegaRef: np.ones_like(batch["VegaRef"].values.reshape(batchSize, 1))}
+                    vegaRef: np.ones_like(batch["VegaRef"].values.reshape(batchSize, 1)),
+                    vegaRefPenalization : np.ones_like(np.expand_dims(kPenalization, 1))}
         return feedDict
 
     # Learning rate is divided by 10 if no imporvement is observed for training loss after "patience" epochs
@@ -225,8 +264,10 @@ def create_train_model(NNFactory,
             print("Learning rate : ", learningRate, " final loss : ", min(loss_serie))
         currentBestLoss = sess.run(loss, feed_dict=epochFeedDict)
         currentBestPenalizations = sess.run([pointwiseError, penalizationList], feed_dict=epochFeedDict)
+        currentBestPenalizations1 = sess.run([penalizationList1], feed_dict=epochFeedDict)
         print("Best loss (hidden nodes: %d, iterations: %d): %.2f" % (hidden_nodes, len(loss_serie), currentBestLoss))
         print("Best Penalization : ", currentBestPenalizations)
+        print("Best Penalization (Refined Grid) : ", currentBestPenalizations1)
         return
 
     for i in range(nbEpoch):
@@ -291,9 +332,12 @@ def create_eval_model(NNFactory,
     # Placeholders for input and output data
     Strike = tf.placeholder(tf.float32, [None, 1])
     Maturity = tf.placeholder(tf.float32, [None, 1])
+    StrikePenalization = tf.placeholder(tf.float32, [None, 1])
+    MaturityPenalization = tf.placeholder(tf.float32, [None, 1])
     factorPrice = tf.placeholder(tf.float32, [None, 1])
     y = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='y')
-    vegaRef = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='vegaRef')
+    vegaRef = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='vegaRef'
+    vegaRefPenalization = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='vegaRefPenalization')
     learningRateTensor = tf.placeholder(tf.float32, [])
 
     # Get scaling for strike
@@ -303,6 +347,22 @@ def create_eval_model(NNFactory,
     scF = (maxColFunction - minColFunction)
     scaleTensor = tf.constant(scF, dtype=tf.float32)
     strikeMinTensor = tf.constant(minColFunction, dtype=tf.float32)
+
+    #Grid on which is applied Penalization
+    t = np.linspace(scaler.data_min_[dataSet.columns.get_loc("Maturity")],
+                    4 * scaler.data_max_[dataSet.columns.get_loc("Maturity")],
+                    num=100)
+    #k = np.linspace(scaler.data_min_[dataSet.columns.get_loc("logMoneyness")],
+    #                scaler.data_max_[dataSet.columns.get_loc("logMoneyness")],
+    #                num=50)
+    #t = np.linspace(0, 4, num=100)
+
+    k = np.linspace((- 0.5 * minColFunction) / scF,
+                    (2.0 * maxColFunction - minColFunction) / scF,
+                    num=50)
+    penalizationGrid = np.meshgrid(k, t)
+    tPenalization = np.ravel(penalizationGrid[1])
+    kPenalization = np.ravel(penalizationGrid[0])
 
     price_pred_tensor = None
     TensorList = None
@@ -320,6 +380,16 @@ def create_eval_model(NNFactory,
                        IsTraining=False),
             vegaRef,
             hyperparameters)
+        price_pred_tensor1, TensorList1, penalizationList1, formattingFunction1 = addDupireRegularisation(
+            *NNFactory(hidden_nodes,
+                       MoneynessPenalization,
+                       MaturityPenalization,
+                       scaleTensor,
+                       moneynessMinTensor,
+                       vegaRefPenalization,
+                       hyperparameters),
+            vegaRefPenalization,
+            hyperparameters)
     else:
         price_pred_tensor, TensorList, penalizationList, formattingFunction = NNFactory(hidden_nodes,
                                                                                         Strike,
@@ -329,6 +399,13 @@ def create_eval_model(NNFactory,
                                                                                         vegaRef,
                                                                                         hyperparameters,
                                                                                         IsTraining=False)
+        price_pred_tensor1, TensorList1, penalizationList1, formattingFunction1 = NNFactory(hidden_nodes,
+                                                                                            MoneynessPenalization,
+                                                                                            MaturityPenalization,
+                                                                                            scaleTensor,
+                                                                                            moneynessMinTensor,
+                                                                                            vegaRefPenalization,
+                                                                                            hyperparameters)
 
     price_pred_tensor_sc = tf.multiply(factorPrice, price_pred_tensor)
     TensorList[0] = price_pred_tensor_sc
@@ -360,9 +437,12 @@ def create_eval_model(NNFactory,
         feedDict = {Strike: scaledInput["ChangedStrike"].values.reshape(batchSize, 1),#scaledInput["ChangedStrike"].loc[batch.index].values.reshape(batchSize, 1),
                     Maturity: batch["Maturity"].values.reshape(batchSize, 1),
                     y: batch["Price"].values.reshape(batchSize, 1),
+                    StrikePenalization : np.expand_dims(kPenalization, 1),
+                    MaturityPenalization : np.expand_dims(tPenalization, 1),
                     factorPrice: batch["DividendFactor"].values.reshape(batchSize, 1),
                     learningRateTensor: learningRate,
-                    vegaRef: np.ones_like(batch["VegaRef"].values.reshape(batchSize, 1))}
+                    vegaRef: np.ones_like(batch["VegaRef"].values.reshape(batchSize, 1)),
+                    vegaRefPenalization : np.ones_like(np.expand_dims(kPenalization, 1))}
         return feedDict
 
     epochFeedDict = createFeedDict(dataSet)
@@ -372,8 +452,10 @@ def create_eval_model(NNFactory,
             print("Learning rate : ", learningRate, " final loss : ", min(loss_serie))
         currentBestLoss = sess.run(loss, feed_dict=epochFeedDict)
         currentBestPenalizations = sess.run([pointwiseError, penalizationList], feed_dict=epochFeedDict)
+        currentBestPenalizations1 = sess.run([penalizationList1], feed_dict=epochFeedDict)
         print("Best loss (hidden nodes: %d, iterations: %d): %.2f" % (hidden_nodes, len(loss_serie), currentBestLoss))
         print("Best Penalization : ", currentBestPenalizations)
+        print("Best Penalization (Refined Grid) : ", currentBestPenalizations1)
         return
 
     saver.restore(sess, modelName)
@@ -386,6 +468,119 @@ def create_eval_model(NNFactory,
 
     return formattingFunction(*evalList, [0], dataSet, scaler)
 
+
+
+############################################################################# Evaluate local volatility
+
+def evalVolLocale(NNFactory,
+                  strikes,
+                  maturities,
+                  dataSet,
+                  hyperParameters,
+                  scaler,
+                  modelName="bestModel"):
+    hidden_nodes = hyperParameters["nbUnits"]
+
+    # Reset the graph
+    resetTensorflow()
+
+    # Placeholders for input and output data
+    Strike = tf.placeholder(tf.float32, [None, 1])
+    Maturity = tf.placeholder(tf.float32, [None, 1])
+    StrikePenalization = tf.placeholder(tf.float32, [None, 1])
+    MaturityPenalization = tf.placeholder(tf.float32, [None, 1])
+    factorPrice = tf.placeholder(tf.float32, [None, 1])
+    y = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='y')
+    vegaRef = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='vegaRef'
+    vegaRefPenalization = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='vegaRefPenalization')
+    learningRateTensor = tf.placeholder(tf.float32, [])
+
+    # Get scaling for strike
+    colStrikeIndex = dataSet.columns.get_loc("ChangedStrike")
+    maxColFunction = scaler.data_max_[colStrikeIndex]
+    minColFunction = scaler.data_min_[colStrikeIndex]
+    scF = (maxColFunction - minColFunction)
+    scaleTensor = tf.constant(scF, dtype=tf.float32)
+    strikeMinTensor = tf.constant(minColFunction, dtype=tf.float32)
+
+    #Grid on which is applied Penalization
+    t = np.linspace(scaler.data_min_[dataSet.columns.get_loc("Maturity")],
+                    4 * scaler.data_max_[dataSet.columns.get_loc("Maturity")],
+                    num=100)
+    #k = np.linspace(scaler.data_min_[dataSet.columns.get_loc("logMoneyness")],
+    #                scaler.data_max_[dataSet.columns.get_loc("logMoneyness")],
+    #                num=50)
+    #t = np.linspace(0, 4, num=100)
+
+    k = np.linspace((- 0.5 * minColFunction) / scF,
+                    (2.0 * maxColFunction - minColFunction) / scF,
+                    num=50)
+    penalizationGrid = np.meshgrid(k, t)
+    tPenalization = np.ravel(penalizationGrid[1])
+    kPenalization = np.ravel(penalizationGrid[0])
+
+    price_pred_tensor = None
+    TensorList = None
+    penalizationList = None
+    formattingFunction = None
+    price_pred_tensor, TensorList, penalizationList, formattingFunction = NNFactory(hidden_nodes,
+                                                                                    Strike,
+                                                                                    Maturity,
+                                                                                    scaleTensor,
+                                                                                    strikeMinTensor,
+                                                                                    vegaRef,
+                                                                                    hyperParameters,
+                                                                                    IsTraining=False)  # one hidden layer
+    price_pred_tensor1, TensorList1, penalizationList1, formattingFunction1 = NNFactory(hidden_nodes,
+                                                                                        StrikePenalization,
+                                                                                        MaturityPenalization,
+                                                                                        scaleTensor,
+                                                                                        strikeMinTensor,
+                                                                                        vegaRefPenalization,
+                                                                                        hyperparameters)
+
+    price_pred_tensor_sc = tf.multiply(factorPrice, price_pred_tensor)
+    TensorList[0] = price_pred_tensor_sc
+
+    # Define a loss function
+    pointwiseError = tf.reduce_mean(tf.abs(price_pred_tensor_sc - y) / vegaRef)
+    errors = tf.add_n([pointwiseError] + penalizationList1)
+    loss = tf.log(tf.reduce_mean(errors))
+
+    optimizer = tf.train.AdamOptimizer(learning_rate=learningRateTensor)
+    train = optimizer.minimize(loss)
+
+    # Initialize variables and run session
+    init = tf.global_variables_initializer()
+    saver = tf.train.Saver()
+    sess = tf.Session()
+    sess.run(init)
+    n = strikes.shape[0]
+    changedVar = changeOfVariable(strikes, maturities)
+    scaledStrike = (changedVar[0] - minColFunction) / scF
+    dividendFactor = changedVar[1]
+
+    def createFeedDict(s, t, d):
+        batchSize = s.shape[0]
+        feedDict = {Strike: np.reshape(s, (batchSize, 1)),
+                    Maturity: np.reshape(t, (batchSize, 1)),
+                    factorPrice: np.reshape(d, (batchSize, 1)),
+                    StrikePenalization : np.expand_dims(kPenalization, 1),
+                    MaturityPenalization : np.expand_dims(tPenalization,1),
+                    vegaRefPenalization : np.ones_like(np.expand_dims(kPenalization, 1)),
+                    vegaRef: np.ones((batchSize, 1))}
+        return feedDict
+
+    epochFeedDict = createFeedDict(scaledStrike, maturities, dividendFactor)
+
+    saver.restore(sess, modelName)
+
+    evalList = sess.run(TensorList, feed_dict=epochFeedDict)
+
+    sess.close()
+
+    return pd.Series(evalList[1].flatten(),
+                     index=pd.MultiIndex.from_arrays([strikes, maturities], names=('Strike', 'Maturity')))
 
 # Soft constraints for strike convexity and strike/maturity monotonicity
 def arbitragePenaltiesPrice(priceTensor, strikeTensor, maturityTensor, scaleTensor, vegaRef, hyperparameters):
@@ -969,89 +1164,6 @@ def NNArchitectureHardConstrainedDupire(n_units, strikeTensor,
     return out, [out, dupireVol, theta, hK, dupireVar], [], evalAndFormatDupireResult
 
 
-############################################################################# Evaluate local volatility
-
-def evalVolLocale(NNFactory,
-                  strikes,
-                  maturities,
-                  dataSet,
-                  hyperParameters,
-                  scaler,
-                  modelName="bestModel"):
-    hidden_nodes = hyperParameters["nbUnits"]
-
-    # Reset the graph
-    resetTensorflow()
-
-    # Placeholders for input and output data
-    Strike = tf.placeholder(tf.float32, [None, 1])
-    Maturity = tf.placeholder(tf.float32, [None, 1])
-    factorPrice = tf.placeholder(tf.float32, [None, 1])
-    y = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='y')
-    vegaRef = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='vegaRef')
-    learningRateTensor = tf.placeholder(tf.float32, [])
-
-    # Get scaling for strike
-    colStrikeIndex = dataSet.columns.get_loc("ChangedStrike")
-    maxColFunction = scaler.data_max_[colStrikeIndex]
-    minColFunction = scaler.data_min_[colStrikeIndex]
-    scF = (maxColFunction - minColFunction)
-    scaleTensor = tf.constant(scF, dtype=tf.float32)
-    strikeMinTensor = tf.constant(minColFunction, dtype=tf.float32)
-
-    price_pred_tensor = None
-    TensorList = None
-    penalizationList = None
-    formattingFunction = None
-    price_pred_tensor, TensorList, penalizationList, formattingFunction = NNFactory(hidden_nodes,
-                                                                                    Strike,
-                                                                                    Maturity,
-                                                                                    scaleTensor,
-                                                                                    strikeMinTensor,
-                                                                                    vegaRef,
-                                                                                    hyperParameters,
-                                                                                    IsTraining=False)  # one hidden layer
-
-    price_pred_tensor_sc = tf.multiply(factorPrice, price_pred_tensor)
-    TensorList[0] = price_pred_tensor_sc
-
-    # Define a loss function
-    pointwiseError = tf.reduce_mean(tf.abs(price_pred_tensor_sc - y) / vegaRef)
-    errors = tf.add_n([pointwiseError] + penalizationList)
-    loss = tf.log(tf.reduce_mean(errors))
-
-    optimizer = tf.train.AdamOptimizer(learning_rate=learningRateTensor)
-    train = optimizer.minimize(loss)
-
-    # Initialize variables and run session
-    init = tf.global_variables_initializer()
-    saver = tf.train.Saver()
-    sess = tf.Session()
-    sess.run(init)
-    n = strikes.shape[0]
-    changedVar = changeOfVariable(strikes, maturities)
-    scaledStrike = (changedVar[0] - minColFunction) / scF
-    dividendFactor = changedVar[1]
-
-    def createFeedDict(s, t, d):
-        batchSize = s.shape[0]
-        feedDict = {Strike: np.reshape(s, (batchSize, 1)),
-                    Maturity: np.reshape(t, (batchSize, 1)),
-                    factorPrice: np.reshape(d, (batchSize, 1)),
-                    vegaRef: np.ones((batchSize, 1))}
-        return feedDict
-
-    epochFeedDict = createFeedDict(scaledStrike, maturities, dividendFactor)
-
-    saver.restore(sess, modelName)
-
-    evalList = sess.run(TensorList, feed_dict=epochFeedDict)
-
-    sess.close()
-
-    return pd.Series(evalList[1].flatten(),
-                     index=pd.MultiIndex.from_arrays([strikes, maturities], names=('Strike', 'Maturity')))
-
 
 ################################################################### Working on implied volatilities
 
@@ -1095,18 +1207,6 @@ def create_train_model_gatheral(NNFactory,
     vegaRefPenalization = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='vegaRefPenalization')
     learningRateTensor = tf.placeholder(tf.float32, [])
 
-    #Grid on which is applied Penalization
-    t = np.linspace(scaler.data_min_[dataSet.columns.get_loc("Maturity")],
-                    4 * scaler.data_max_[dataSet.columns.get_loc("Maturity")],
-                    num=100)
-    #k = np.linspace(scaler.data_min_[dataSet.columns.get_loc("logMoneyness")],
-    #                scaler.data_max_[dataSet.columns.get_loc("logMoneyness")],
-    #                num=50)
-    #t = np.linspace(0, 4, num=100)
-    k = np.linspace(0, 1, num=50)
-    penalizationGrid = np.meshgrid(k, t)
-    tPenalization = np.ravel(penalizationGrid[1])
-    kPenalization = np.ravel(penalizationGrid[0])
 
     # Get scaling for strike
     colMoneynessIndex = dataSet.columns.get_loc("logMoneyness")
@@ -1115,6 +1215,22 @@ def create_train_model_gatheral(NNFactory,
     scF = (maxColFunction - minColFunction)
     scaleTensor = tf.constant(scF, dtype=tf.float32)
     moneynessMinTensor = tf.constant(minColFunction, dtype=tf.float32)
+
+    #Grid on which is applied Penalization
+    t = np.linspace(scaler.data_min_[dataSet.columns.get_loc("Maturity")],
+                    4 * scaler.data_max_[dataSet.columns.get_loc("Maturity")],
+                    num=100)
+    #k = np.linspace(scaler.data_min_[dataSet.columns.get_loc("logMoneyness")],
+    #                scaler.data_max_[dataSet.columns.get_loc("logMoneyness")],
+    #                num=50)
+    #t = np.linspace(0, 4, num=100)
+
+    k = np.linspace((np.log(0.5) - minColFunction) / scF,
+                    (np.log(2.0) - minColFunction) / scF,
+                    num=50)
+    penalizationGrid = np.meshgrid(k, t)
+    tPenalization = np.ravel(penalizationGrid[1])
+    kPenalization = np.ravel(penalizationGrid[0])
 
     price_pred_tensor = None
     TensorList = None
@@ -1293,6 +1409,14 @@ def create_eval_model_gatheral(NNFactory,
     vegaRefPenalization = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='vegaRefPenalization')
     learningRateTensor = tf.placeholder(tf.float32, [])
 
+    # Get scaling for strike
+    colMoneynessIndex = dataSet.columns.get_loc("logMoneyness")
+    maxColFunction = scaler.data_max_[colMoneynessIndex]
+    minColFunction = scaler.data_min_[colMoneynessIndex]
+    scF = (maxColFunction - minColFunction)
+    scaleTensor = tf.constant(scF, dtype=tf.float32)
+    moneynessMinTensor = tf.constant(minColFunction, dtype=tf.float32)
+
     #Grid on which is applied Penalization
     t = np.linspace(scaler.data_min_[dataSet.columns.get_loc("Maturity")],
                     4 * scaler.data_max_[dataSet.columns.get_loc("Maturity")],
@@ -1301,18 +1425,13 @@ def create_eval_model_gatheral(NNFactory,
     #                scaler.data_max_[dataSet.columns.get_loc("logMoneyness")],
     #                num=50)
     #t = np.linspace(0, 4, num=100)
-    k = np.linspace(0, 1, num=50)
+
+    k = np.linspace((np.log(0.5) - minColFunction) / scF,
+                    (np.log(2.0) - minColFunction) / scF,
+                    num=50)
     penalizationGrid = np.meshgrid(k, t)
     tPenalization = np.ravel(penalizationGrid[1])
     kPenalization = np.ravel(penalizationGrid[0])
-
-    # Get scaling for strike
-    colMoneynessIndex = dataSet.columns.get_loc("logMoneyness")
-    maxColFunction = scaler.data_max_[colMoneynessIndex]
-    minColFunction = scaler.data_min_[colMoneynessIndex]
-    scF = (maxColFunction - minColFunction)
-    scaleTensor = tf.constant(scF, dtype=tf.float32)
-    moneynessMinTensor = tf.constant(minColFunction, dtype=tf.float32)
 
     price_pred_tensor = None
     TensorList = None
@@ -1440,18 +1559,6 @@ def evalVolLocaleGatheral(NNFactory,
     vegaRefPenalization = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='vegaRefPenalization')
     learningRateTensor = tf.placeholder(tf.float32, [])
 
-    #Grid on which is applied Penalization
-    t = np.linspace(scaler.data_min_[dataSet.columns.get_loc("Maturity")],
-                    4 * scaler.data_max_[dataSet.columns.get_loc("Maturity")],
-                    num=100)
-    #k = np.linspace(scaler.data_min_[dataSet.columns.get_loc("logMoneyness")],
-    #                scaler.data_max_[dataSet.columns.get_loc("logMoneyness")],
-    #                num=50)
-    #t = np.linspace(0, 4, num=100)
-    k = np.linspace(0, 1, num=50)
-    penalizationGrid = np.meshgrid(k, t)
-    tPenalization = np.ravel(penalizationGrid[1])
-    kPenalization = np.ravel(penalizationGrid[0])
 
     # Get scaling for strike
     colMoneynessIndex = dataSet.columns.get_loc("logMoneyness")
@@ -1460,6 +1567,22 @@ def evalVolLocaleGatheral(NNFactory,
     scF = (maxColFunction - minColFunction)
     scaleTensor = tf.constant(scF, dtype=tf.float32)
     moneynessMinTensor = tf.constant(minColFunction, dtype=tf.float32)
+
+    #Grid on which is applied Penalization
+    t = np.linspace(scaler.data_min_[dataSet.columns.get_loc("Maturity")],
+                    4 * scaler.data_max_[dataSet.columns.get_loc("Maturity")],
+                    num=100)
+    #k = np.linspace(scaler.data_min_[dataSet.columns.get_loc("logMoneyness")],
+    #                scaler.data_max_[dataSet.columns.get_loc("logMoneyness")],
+    #                num=50)
+    #t = np.linspace(0, 4, num=100)
+
+    k = np.linspace((np.log(0.5) - minColFunction) / scF,
+                    (np.log(2.0) - minColFunction) / scF,
+                    num=50)
+    penalizationGrid = np.meshgrid(k, t)
+    tPenalization = np.ravel(penalizationGrid[1])
+    kPenalization = np.ravel(penalizationGrid[0])
 
     price_pred_tensor = None
     TensorList = None

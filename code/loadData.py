@@ -210,7 +210,7 @@ def cleanData(zeroCouponCurve,
 
 def selectTrainingSet(rawData):
     maturities = np.sort(np.unique(rawData.index.get_level_values("Maturity").values))
-    maxTrainingMaturities = maturities[-3]
+    maxTrainingMaturities = maturities[-1] #maturities[-3]
     filteredData = rawData[rawData.index.get_level_values("Maturity") <= maxTrainingMaturities]
 
     trainingPercentage = 0.5
@@ -502,6 +502,47 @@ def loadGPLocVol(pathFolder, GPKernel, bootstrap, S0):
     return locVolAreskyFormatted[~locVolAreskyFormatted.index.duplicated(keep='first')]
 
 
+def loadGPLocVol(workingFolder, filename, bootstrap, S0):
+    #pathGP = pathFolder + ("local_vol_gaussian.csv" if GPKernel == "Gaussian" else "local_vol_matern_5_2.csv")
+    pathGP = workingFolder + filename
+    print("Loading local volatility from : ", pathGP)
+
+    locVolAresky = pd.read_excel(pathGP,
+                                 header=0,
+                                 sheet_name="Sheet1")
+
+    #locVolAresky["Strike"] = locVolAresky["K"].values
+    locVolAresky.insert(0, "Strike", locVolAresky["K"].round(decimals=3).values)
+
+    #locVolAresky["Maturity"] = locVolAresky["T"].round(decimals=3)
+    locVolAresky.insert(0, "Maturity", locVolAresky["T"].round(decimals=3))
+
+    renameDict = {"loc_vol": "LocalVolatility"}
+    locVolAreskyFormatted = locVolAresky.rename(columns=renameDict).set_index(["Strike", "Maturity"])
+
+    changedVarAresky = bootstrap.changeOfVariable(locVolAreskyFormatted["K"],
+                                                  locVolAreskyFormatted["T"])
+
+    #locVolAreskyFormatted["Maturity"] = locVolAreskyFormatted["T"]
+    locVolAreskyFormatted.insert(0, "Maturity", locVolAreskyFormatted["T"].round(decimals=3))
+
+    #locVolAreskyFormatted["Strike"] = locVolAreskyFormatted["K"]
+    locVolAreskyFormatted.insert(0, "Strike", locVolAreskyFormatted["K"].round(decimals=3))
+
+    #locVolAreskyFormatted["ChangedStrike"] = pd.Series(changedVarAresky[0],
+    #                                                   index=locVolAreskyFormatted.index)
+    locVolAreskyFormatted.insert(0,
+                                 "ChangedStrike",
+                                 pd.Series(changedVarAresky[0], index=locVolAreskyFormatted.index))
+
+    #locVolAreskyFormatted["logMoneyness"] = np.log(locVolAreskyFormatted["ChangedStrike"] / S0)
+    locVolAreskyFormatted.insert(0, "logMoneyness",
+                                 np.log(locVolAreskyFormatted["ChangedStrike"] / S0))
+    locVolAreskyFormatted.insert(0, "OptionType",
+                                 -np.ones_like(locVolAreskyFormatted["ChangedStrike"]))
+
+    return locVolAreskyFormatted[~locVolAreskyFormatted.index.duplicated(keep='first')]
+
 def removeDataViolatingStaticArbitrageStep(df):
     arbitrableRows = []
     for strike in df.rename({"Strike": "StrikeColumn"}, axis=1).groupby("StrikeColumn"):
@@ -529,3 +570,23 @@ def removeDataViolatingStaticArbitrage(df):
         formerDf = dfStep
         iterNb = iterNb + 1
     return dfStep
+
+def loadFormattedData(pathFolder):
+    S0 = 2859.53 #Hard coded value
+
+    trainingPath = pathFolder + "trainingDataSet.csv"
+    trainingDataset = pd.read_csv(trainingPath).set_index(["Strike", "Maturity"]).rename({"Strike.1": "Strike",
+                                                                                          "Maturity.1": "Maturity"},
+                                                                                         axis=1).sort_index()
+
+    testingPath = pathFolder + "testingDataSet.csv"
+    testingDataset = pd.read_csv(testingPath).set_index(["Strike", "Maturity"]).rename({"Strike.1": "Strike",
+                                                                                        "Maturity.1": "Maturity"},
+                                                                                       axis=1).sort_index()
+
+    bootstrappingPath = pathFolder + "dfCurve.csv"
+    dfCurve = pd.read_csv(bootstrappingPath).rename({"Unnamed: 0" : "Maturity"},
+                                                    axis=1).set_index("Maturity").sort_index()
+    bootstrap = bootstrapping.bootstrappingFromData(dfCurve)
+
+    return trainingDataset, testingDataset, bootstrap, S0

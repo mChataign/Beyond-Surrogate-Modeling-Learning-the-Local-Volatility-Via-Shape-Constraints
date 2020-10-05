@@ -113,15 +113,19 @@ def fit_ssvi(phifun=None, log_moneyness=None, theta_expanded=None, total_implied
         constraints = {"type" : "ineq",
                        "fun" : lambda x : np.array([ - c(x) ]),
                        "jac" : lambda x : np.array([ - cJac(x) ])}
-        res = scipy.optimize.minimize(targetfun, param0, 
+        res = scipy.optimize.minimize(targetfun, param0,
                                       method= "SLSQP",#"L-BFGS-B", #"trust-constr",#"trust-constr",
                                       bounds=list(zip(lb, ub)),#[lb, ub],
                                       constraints = constraints) 
         parameters[:, n] = res.x
         funValue[n,0] = res.fun
-    
+
+
     idMin = idxmin(funValue) 
     parameters = parameters[:, idMin[0]]
+
+    print("Contrainte : ", c(parameters))
+
     if phifun == 'power_law':
         parameters = np.concatenate((parameters, [0.5]))
     #print("parameters", parameters)
@@ -242,6 +246,7 @@ def fit_svi(x0=None, k=None,
         if (i==0) or (fval > res.fun) :
             fval =  res.fun
             parameters = res.x
+    print("Contrainte : ", A @ res.x)
     
     # use ga to find solution if optimizer gets stuck
     #if fval >= 1e6:
@@ -375,7 +380,7 @@ def fit_svi_surface(implied_volatility=None,
         if np.isin(0, log_moneyness[pos]):
             theta[t] = tiv_t[log_moneyness[pos] == 0] #ATM total implied variance 
         else:#Interpolate ATM total implied variance from the smile
-            theta[t] = interp1(log_moneyness[pos], tiv_t, 0, 'linear', 'extrapolate')
+            theta[t] = max(interp1(log_moneyness[pos], tiv_t, 0, 'linear', 'extrapolate'), theta[t-1] if t > 0 else 0)
         
         theta_expanded[pos] = theta[t]
     
@@ -707,9 +712,12 @@ def svi_interpolation(log_moneyness=None,
             # smallest maturity larger than tau_interp
             if maturities[idx] < tau_interp:
                 idx = idx + 1
-            
+            epsilon = 1e-6
+            if abs(theta[idx] - theta[idx - 1]) > epsilon :
+                alpha_t = ((sqrt(theta[idx]) - sqrt(theta_interp)) / (sqrt(theta[idx]) - sqrt(theta[idx - 1])))
+            else :
+                alpha_t = ((maturities[idx] - tau_interp) / (maturities[idx]- maturities[idx-1]))
 
-            alpha_t = (sqrt(theta[idx]) - sqrt(theta_interp)) / (sqrt(theta[idx]) - sqrt(theta[idx - 1]))
             param_interp = alpha_t * parameters[:, idx - 1] + (1 - alpha_t) * parameters[:, idx]
             total_implied_variance,_ = svi_jumpwing(log_moneyness, param_interp, tau_interp)
             implied_volatility = sqrt(total_implied_variance / tau_interp)
@@ -746,8 +754,30 @@ def svi_interpolation(log_moneyness=None,
             optionPrice = np.multiply(K_t,
                                       (np.divide(alpha_t * optionPrice_1, strike_1) +
                                        np.divide((1 - alpha_t) * optionPrice_2, strike_2)))
+
+            #print("optionPrice_1 : ", optionPrice_1)
+            #print("optionPrice_2 : ", optionPrice_2)
+            #print("optionPrice : ", optionPrice)
+
+            #print("implied_volatility_2 : ", implied_volatility_2)
+            #print("implied_volatility : ", implied_volatility)
             implied_volatility = blsimpv(close, K_t, bootstrap, tau_interp, optionPrice, optionType)
             total_implied_variance = np.power(implied_volatility, 2) * tau_interp
+
+            if any((total_implied_variance - total_implied_variance_2) >= 0) : #Arbitrage are caused by
+                param_slope = (parameters[:, idx + 1] - parameters[:, idx]) / (theta[idx + 1] - theta[idx])
+                param_interp = parameters[:, idx] + (theta_interp - theta[idx]) * param_slope
+
+                total_implied_variance,_ = svi_jumpwing(log_moneyness, param_interp, tau_interp)
+                implied_volatility = sqrt(total_implied_variance / tau_interp)
+                strike = forward_interp * exp(log_moneyness)
+                optionPrice = np.array(blsprice(close, strike,
+                                                bootstrap,
+                                                tau_interp,
+                                                implied_volatility,
+                                                optionType))
+                optionPrice[optionPrice < 0] = 0
+
         else:
             # extrapolation for large maturities
             total_implied_variance,_ = svi_jumpwing(log_moneyness, parameters[:, -1], maturities[-1])

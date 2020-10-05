@@ -28,6 +28,10 @@ def customInterpolator(interpolatedData, newStrike, newMaturity):
     
   return np.where(np.isnan(fInterpolation), fExtrapolation, fInterpolation)
 
+  #return interpolate.interp2d(strikeRef, maturityRef,
+  #                            interpolatedData.values.flatten(),
+  #                            kind='linear')(newStrike, newMaturity)
+
 #Get local volatility from Crépey (2002) by nearest neighbour interpolation
 def interpolatedLocalVolatility(localVol, priceGrid):
     
