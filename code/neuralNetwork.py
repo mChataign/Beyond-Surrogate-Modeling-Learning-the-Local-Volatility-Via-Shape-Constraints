@@ -127,7 +127,7 @@ def create_train_model(NNFactory,
     MaturityPenalization = tf.placeholder(tf.float32, [None, 1])
     factorPrice = tf.placeholder(tf.float32, [None, 1])
     y = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='y')
-    vegaRef = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='vegaRef'
+    vegaRef = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='vegaRef')
     vegaRefPenalization = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='vegaRefPenalization')
     learningRateTensor = tf.placeholder(tf.float32, [])
 
@@ -207,7 +207,7 @@ def create_train_model(NNFactory,
     # Define a train operation to minimize the loss
     lr = learningRate
 
-     optimizer = tf.train.AdamOptimizer(learning_rate=learningRateTensor)
+    optimizer = tf.train.AdamOptimizer(learning_rate=learningRateTensor)
     # optimizer = tf.train.MomentumOptimizer(learning_rate=learningRateTensor,
     #                                       momentum=0.9,
     #                                       use_nesterov=True)
@@ -336,7 +336,7 @@ def create_eval_model(NNFactory,
     MaturityPenalization = tf.placeholder(tf.float32, [None, 1])
     factorPrice = tf.placeholder(tf.float32, [None, 1])
     y = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='y')
-    vegaRef = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='vegaRef'
+    vegaRef = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='vegaRef')
     vegaRefPenalization = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='vegaRefPenalization')
     learningRateTensor = tf.placeholder(tf.float32, [])
 
@@ -491,7 +491,7 @@ def evalVolLocale(NNFactory,
     MaturityPenalization = tf.placeholder(tf.float32, [None, 1])
     factorPrice = tf.placeholder(tf.float32, [None, 1])
     y = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='y')
-    vegaRef = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='vegaRef'
+    vegaRef = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='vegaRef')
     vegaRefPenalization = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='vegaRefPenalization')
     learningRateTensor = tf.placeholder(tf.float32, [])
 
