@@ -140,7 +140,7 @@ def create_train_model(NNFactory,
     strikeMinTensor = tf.constant(minColFunction, dtype=tf.float32)
 
     #Grid on which is applied Penalization
-    t = np.linspace(scaler.data_min_[dataSet.columns.get_loc("Maturity")],
+    t = np.linspace(0, #scaler.data_min_[dataSet.columns.get_loc("Maturity")],
                     4 * scaler.data_max_[dataSet.columns.get_loc("Maturity")],
                     num=100)
     #k = np.linspace(scaler.data_min_[dataSet.columns.get_loc("logMoneyness")],
@@ -349,7 +349,7 @@ def create_eval_model(NNFactory,
     strikeMinTensor = tf.constant(minColFunction, dtype=tf.float32)
 
     #Grid on which is applied Penalization
-    t = np.linspace(scaler.data_min_[dataSet.columns.get_loc("Maturity")],
+    t = np.linspace(0,#scaler.data_min_[dataSet.columns.get_loc("Maturity")],
                     4 * scaler.data_max_[dataSet.columns.get_loc("Maturity")],
                     num=100)
     #k = np.linspace(scaler.data_min_[dataSet.columns.get_loc("logMoneyness")],
@@ -382,10 +382,10 @@ def create_eval_model(NNFactory,
             hyperparameters)
         price_pred_tensor1, TensorList1, penalizationList1, formattingFunction1 = addDupireRegularisation(
             *NNFactory(hidden_nodes,
-                       MoneynessPenalization,
+                       StrikePenalization,
                        MaturityPenalization,
                        scaleTensor,
-                       moneynessMinTensor,
+                       strikeMinTensor,
                        vegaRefPenalization,
                        hyperparameters),
             vegaRefPenalization,
@@ -400,10 +400,10 @@ def create_eval_model(NNFactory,
                                                                                         hyperparameters,
                                                                                         IsTraining=False)
         price_pred_tensor1, TensorList1, penalizationList1, formattingFunction1 = NNFactory(hidden_nodes,
-                                                                                            MoneynessPenalization,
+                                                                                            StrikePenalization,
                                                                                             MaturityPenalization,
                                                                                             scaleTensor,
-                                                                                            moneynessMinTensor,
+                                                                                            strikeMinTensor,
                                                                                             vegaRefPenalization,
                                                                                             hyperparameters)
 
@@ -504,7 +504,7 @@ def evalVolLocale(NNFactory,
     strikeMinTensor = tf.constant(minColFunction, dtype=tf.float32)
 
     #Grid on which is applied Penalization
-    t = np.linspace(scaler.data_min_[dataSet.columns.get_loc("Maturity")],
+    t = np.linspace(0, #scaler.data_min_[dataSet.columns.get_loc("Maturity")],
                     4 * scaler.data_max_[dataSet.columns.get_loc("Maturity")],
                     num=100)
     #k = np.linspace(scaler.data_min_[dataSet.columns.get_loc("logMoneyness")],
@@ -938,6 +938,7 @@ def NNArchitectureConstrainedDupire(n_units,
 
 ############################################################################# Soft constraint
 
+
 def NNArchitectureConstrainedRawDupire(n_units,
                                        strikeTensor,
                                        maturityTensor,
@@ -985,6 +986,14 @@ def NNArchitectureConstrainedRawDupire(n_units,
 
 ############################################################################# Soft constraint
 
+# Soft constraints for strike convexity and strike/maturity monotonicity
+def arbitragePenalties(dT, gatheralDenominator, vegaRef, hyperparameters):
+    lambdas = 1.0 / tf.reduce_mean(vegaRef)
+    lowerBoundTheta = tf.constant(hyperparameters["lowerBoundTheta"])
+    lowerBoundGamma = tf.constant(hyperparameters["lowerBoundGamma"])
+    calendar_penalty = lambdas * hyperparameters["lambdaSoft"] * tf.reduce_mean(tf.nn.relu(-dT + lowerBoundTheta))
+    butterfly_penalty = lambdas * hyperparameters["lambdaGamma"] * tf.reduce_mean( tf.nn.relu(-gatheralDenominator + lowerBoundGamma) )
+
 def NNArchitectureVanillaSoftDupire(n_units, strikeTensor,
                                     maturityTensor,
                                     scaleTensor,
@@ -1016,12 +1025,12 @@ def NNArchitectureVanillaSoftDupire(n_units, strikeTensor,
                                                        strikeMinTensor,
                                                        IsTraining=IsTraining)
     # Soft constraints for no arbitrage
-    lambdas = hyperparameters["lambdaSoft"]
     lowerBoundTheta = tf.constant(hyperparameters["lowerBoundTheta"])
     lowerBoundGamma = tf.constant(hyperparameters["lowerBoundGamma"])
-    grad_penalty = lambdas * tf.reduce_mean(tf.nn.relu(-theta + lowerBoundTheta) / vegaRef)
-    hessian_penalty = lambdas * hyperparameters["lambdaGamma"] * tf.reduce_mean(
-        tf.nn.relu(-hK + lowerBoundGamma) / vegaRef)
+    lambdasDT = hyperparameters["lambdaSoft"]
+    lambdasGK = hyperparameters["lambdaGamma"]
+    grad_penalty = lambdasDT * tf.reduce_mean(tf.nn.relu(-theta + lowerBoundTheta) / vegaRef)
+    hessian_penalty = lambdasGK * tf.reduce_mean( tf.nn.relu(-hK + lowerBoundGamma) / vegaRef )
 
     return out, [out, dupireVol, theta, hK, dupireVar], [grad_penalty, hessian_penalty], evalAndFormatDupireResult
 

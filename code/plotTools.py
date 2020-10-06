@@ -329,6 +329,9 @@ def modelSummary(price,
                  az=40,
                  yMin = 0,
                  yMax = 1):
+  nbArbitrageViolations = ((delta_T < 0) + (gamma_K < 0)).sum()
+  print("Number of static arbitrage violations : ", nbArbitrageViolations)
+  print("Arbitrable total variance : ", price[((delta_T < 0) + (gamma_K < 0))])
   priceRef = benchDataset["Price"]
   predictionDiagnosis(price, 
                       priceRef, 
