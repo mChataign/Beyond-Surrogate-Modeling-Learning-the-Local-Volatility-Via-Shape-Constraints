@@ -477,7 +477,9 @@ def modelSummaryGatheral(totalVariance,
     nbArbitrageViolations = ((delta_T < 0) + (gamma_K < 0)).sum()
     print("Number of static arbitrage violations : ", nbArbitrageViolations)
     print("Arbitrable total variance : ", totalVariance[((delta_T < 0) + (gamma_K < 0))])
-
+    
+    
+    
     refDataset = benchDataset.loc[totalVariance.index]
     if logMoneynessScale:
         if S0 < 0 :
@@ -486,6 +488,7 @@ def modelSummaryGatheral(totalVariance,
         volLocalePred = convertToLogMoneyness(volLocale, S0)
         delta_TPred = convertToLogMoneyness(delta_T, S0)
         gKRefPred = convertToLogMoneyness(gamma_K, S0)
+        pricePred = convertToLogMoneyness(pricePred, S0)
         benchDatasetScaled = convertToLogMoneyness(refDataset, S0)
         yMinScaled = np.log(S0 / yMax)
         yMaxScaled = np.log(S0 / yMin)
@@ -540,6 +543,46 @@ def modelSummaryGatheral(totalVariance,
                         yMin=yMinScaled,
                         yMax=yMaxScaled)
     return
+
+def plotImpliedVolPrices(totalVariance, bootstrap, S0, benchDataset, 
+                         logMoneynessScale = False,
+                         yMin=0,
+                         yMax=1,):
+  MaturityPred = totalVariance.index.get_level_values("Maturity")
+  StrikePred = totalVariance.index.get_level_values("Strike")
+  impliedVolPred = np.sqrt(totalVariance / MaturityPred)
+  def priceFromImpliedVolatility(vol, bootstrap, T, K, S0):
+    q = bootstrap.dividendIntegral(T) / T
+    r = bootstrap.discountIntegral(T) / T
+    return BS.bsformula( -1, S0, K, r, T, vol, q=q)
+  resP = list(map(lambda x : priceFromImpliedVolatility(x[0], bootstrap, x[1], x[2], S0)[0],
+                  zip(impliedVolPred.values, MaturityPred, StrikePred)))
+  
+  priceImpli = pd.Series(resP, index = totalVariance.index).rename("Price")
+  refDataset = benchDataset.loc[totalVariance.index]
+  if logMoneynessScale:
+    if S0 < 0 :
+      raise Exception("Precise a correct the spot underlying value ")
+    pricePred = convertToLogMoneyness(priceImpli, S0)
+    benchDatasetScaled = convertToLogMoneyness(refDataset, S0)
+    yMinScaled = np.log(S0 / yMax)
+    yMaxScaled = np.log(S0 / yMin)
+    azimutIncrement = 180
+  else:
+    pricePred = priceImpli
+    benchDatasetScaled = refDataset
+    yMinScaled = yMin
+    yMaxScaled = yMax
+    azimutIncrement = 0
+  
+  priceRef = benchDatasetScaled["Price"]
+  predictionDiagnosis(pricePred,
+                      priceRef,
+                      "Price",
+                      az=320 + azimutIncrement,
+                      yMin=yMinScaled,
+                      yMax=yMaxScaled)
+  return
 
 
 # Plotting function for surface
