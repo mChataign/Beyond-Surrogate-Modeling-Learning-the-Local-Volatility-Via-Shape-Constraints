@@ -478,6 +478,8 @@ def evalVolLocale(NNFactory,
                   dataSet,
                   hyperParameters,
                   scaler,
+                  bootstrap,
+                  S0,
                   modelName="bestModel"):
     hidden_nodes = hyperParameters["nbUnits"]
 
@@ -537,7 +539,7 @@ def evalVolLocale(NNFactory,
                                                                                         scaleTensor,
                                                                                         strikeMinTensor,
                                                                                         vegaRefPenalization,
-                                                                                        hyperparameters)
+                                                                                        hyperParameters)
 
     price_pred_tensor_sc = tf.multiply(factorPrice, price_pred_tensor)
     TensorList[0] = price_pred_tensor_sc
@@ -556,7 +558,7 @@ def evalVolLocale(NNFactory,
     sess = tf.Session()
     sess.run(init)
     n = strikes.shape[0]
-    changedVar = changeOfVariable(strikes, maturities)
+    changedVar = bootstrap.changeOfVariable(strikes, maturities)
     scaledStrike = (changedVar[0] - minColFunction) / scF
     dividendFactor = changedVar[1]
 

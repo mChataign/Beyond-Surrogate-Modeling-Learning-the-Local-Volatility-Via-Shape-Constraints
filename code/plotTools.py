@@ -472,20 +472,23 @@ def modelSummaryGatheral(totalVariance,
                          az=40,
                          yMin=0,
                          yMax=1,
-                         logMoneynessScale=False):
+                         logMoneynessScale=False,
+                         S0 = -1):
     nbArbitrageViolations = ((delta_T < 0) + (gamma_K < 0)).sum()
     print("Number of static arbitrage violations : ", nbArbitrageViolations)
     print("Arbitrable total variance : ", totalVariance[((delta_T < 0) + (gamma_K < 0))])
 
     refDataset = benchDataset.loc[totalVariance.index]
     if logMoneynessScale:
-        totalVariancePred = convertToLogMoneyness(totalVariance)
-        volLocalePred = convertToLogMoneyness(volLocale)
-        delta_TPred = convertToLogMoneyness(delta_T)
-        gKRefPred = convertToLogMoneyness(gamma_K)
-        benchDatasetScaled = convertToLogMoneyness(refDataset)
-        yMinScaled = np.log(S0[0] / yMax)
-        yMaxScaled = np.log(S0[0] / yMin)
+        if S0 < 0 :
+            raise Exception("Precise a correct the spot underlying value ")
+        totalVariancePred = convertToLogMoneyness(totalVariance, S0)
+        volLocalePred = convertToLogMoneyness(volLocale, S0)
+        delta_TPred = convertToLogMoneyness(delta_T, S0)
+        gKRefPred = convertToLogMoneyness(gamma_K, S0)
+        benchDatasetScaled = convertToLogMoneyness(refDataset, S0)
+        yMinScaled = np.log(S0 / yMax)
+        yMaxScaled = np.log(S0 / yMin)
         azimutIncrement = 180
     else:
         totalVariancePred = totalVariance

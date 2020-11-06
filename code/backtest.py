@@ -138,7 +138,7 @@ def priceEuropeanCallCranckNicholson(time_step, S,
             Mdiag = 1 - (theta * time_step * beta)
             Ndiag = 1 + (1-theta) * time_step * beta
 
-            gamma = sigma[:-1] ** 2 / (2 * space_step ** 2) + log_drift[:-1] / (2 * space_step)
+            gamma = np.ravel(sigma[:-1] ** 2 / (2 * space_step ** 2) + log_drift[:-1] / (2 * space_step))   
             MdiagSup = (-theta) * time_step * gamma
             NdiagSup = (1-theta) * time_step * gamma
 
