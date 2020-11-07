@@ -9,9 +9,9 @@ Notebook dupireNN.ipynb implements neural network local volatility from price wi
 
 Notebook dupireNN.ipynb implements neural network local volatility from price with the Dupire formula but without any constraint.
 
-Notebook NeuralNetwork.ipynb implements neural network local volatility from implied volatility with neural network.
+Notebook NeuralNetwork.ipynb implements neural network local volatility from implied volatility with neural network and from price.
 
-Notebook LocVolGatheral.ipynb implements neural network local volatility from implied volatility with SSVI.
+Notebook LocVolGatheral.ipynb implements neural network local volatility from implied volatility with SSVI. It also provides backtests for SSVI and Gaussian process interpolation.
 
 The code folder contains python script for our library :
 - BS.py offers some service related to black-scholes model (implied volatility calibration, pricing ...).
