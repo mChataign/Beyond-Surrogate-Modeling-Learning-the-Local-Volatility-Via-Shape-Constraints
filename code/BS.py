@@ -101,7 +101,60 @@ def bs_price(cp, s, k, rf, t, v, div):
         
         return optprice
 
-def bissectionMethod(S0, r, q, implied_vol0, maturity, Strike, refPrice, epsilon, optionType):
+#def bissectionMethod(S0, r, q, implied_vol0, maturity, Strike, refPrice, epsilon, optionType):
+#    calibratedSigma = implied_vol0
+#    #Call black-scholes price function for initial value
+#    priceBS = bs_price(optionType , S0, Strike, r, maturity, calibratedSigma, q)
+#    sigmaUp = 2.0
+#    sigmaInf = epsilon
+#    lossSerie = []
+#    
+#    priceMax = bs_price(optionType ,S0, Strike, r, maturity, sigmaUp, q)
+#    if priceMax < refPrice:
+#        return priceMax, sigmaUp, pd.Series(lossSerie)
+#    
+#    priceMin = bs_price(optionType ,S0, Strike, r, maturity, sigmaInf, q)
+#    if priceMin > refPrice:
+#        return priceMin, sigmaInf, pd.Series(lossSerie) 
+#
+#    #Stop the optimization when the error is less than epsilon
+#    while(abs(priceBS - refPrice) > epsilon):
+#        #Update the upper bound or the lower bound 
+#        #by comparing calibrated price and the target price 
+#        if priceBS < refPrice : 
+#            sigmaInf = calibratedSigma
+#        else :
+#            sigmaUp = calibratedSigma
+#        #Update calibratedSigma
+#        calibratedSigma = (sigmaUp + sigmaInf) / 2
+#        #Update calibrated price
+#        priceBS = bs_price(optionType ,S0, Strike, r, maturity, calibratedSigma, q)
+#        #Record the calibration error for this step
+#        lossSerie.append(abs(priceBS - refPrice)) 
+#        
+#    return priceBS, calibratedSigma, pd.Series(lossSerie)
+
+def bissectionMethod(S0, 
+                     r, q, 
+                     implied_vol0, 
+                     maturity, 
+                     Strike, 
+                     refPrice, 
+                     epsilon, 
+                     optionType, 
+                     removeNaN = False):
+    forward = S0 * np.exp(-q * maturity) - Strike * np.exp(-r * maturity)
+    if (forward * optionType > 0): #we calibrate only options in the money
+        newPrice = (refPrice - forward) if optionType == 1 else (forward + refPrice)
+        return bissectionMethod(S0, 
+                                r, q, 
+                                implied_vol0, 
+                                maturity, 
+                                Strike, 
+                                newPrice, 
+                                epsilon, 
+                                optionType * -1, 
+                                removeNaN = removeNaN)
     calibratedSigma = implied_vol0
     #Call black-scholes price function for initial value
     priceBS = bs_price(optionType , S0, Strike, r, maturity, calibratedSigma, q)
@@ -111,11 +164,11 @@ def bissectionMethod(S0, r, q, implied_vol0, maturity, Strike, refPrice, epsilon
     
     priceMax = bs_price(optionType ,S0, Strike, r, maturity, sigmaUp, q)
     if priceMax < refPrice:
-        return priceMax, sigmaUp, pd.Series(lossSerie)
+        return priceMax, (np.NaN if removeNaN else sigmaUp), pd.Series(lossSerie)
     
     priceMin = bs_price(optionType ,S0, Strike, r, maturity, sigmaInf, q)
     if priceMin > refPrice:
-        return priceMin, sigmaInf, pd.Series(lossSerie) 
+        return priceMin, (np.NaN if removeNaN else sigmaInf), pd.Series(lossSerie) 
 
     #Stop the optimization when the error is less than epsilon
     while(abs(priceBS - refPrice) > epsilon):
@@ -139,8 +192,9 @@ def vectorizedImpliedVolatilityCalibration(S0,
                                            maturity,
                                            strike,
                                            optionType,
-                                           marketPrice):
-    epsilon = 1e-6
+                                           marketPrice,
+                                           removeNaN = False):
+    epsilon = 1e-9
     discountRate = bootstrap.discountIntegral(maturity) / maturity
     dividendRate = bootstrap.dividendIntegral(maturity) / maturity
     data = np.vstack([np.array(maturity),  np.array(strike), np.array(optionType),
@@ -152,7 +206,8 @@ def vectorizedImpliedVolatilityCalibration(S0,
                                                 x["Strike"],
                                                 x["Price"],
                                                 epsilon,
-                                                x["OptionType"])[1]
+                                                x["OptionType"],
+                                                removeNaN = removeNaN)[1]
     impVol = dataSet.apply(calibFunction, axis=1)
 
     return np.ravel(impVol)

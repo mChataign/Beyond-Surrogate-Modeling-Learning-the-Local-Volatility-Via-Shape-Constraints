@@ -10,7 +10,13 @@ import BS
 import dataSetConstruction
 
 def rmse(a,b):
-    return np.sqrt(np.mean(np.square(a-b)))
+    return np.sqrt(np.nanmean(np.square(a-b)))
+
+def selectIndex(df, indexToKeep):
+    return df.loc[indexToKeep][ ~df.loc[indexToKeep].index.duplicated(keep='first') ]
+
+def removeDuplicateIndex(df):
+    return selectIndex(df, df.index)
 
 ################################################################################ Parsing dat files
 def parseDatFile(fileName):
@@ -205,7 +211,7 @@ def cleanData(zeroCouponCurve,
     formattedTrainingData = filteredTrainingData.drop(["Active", "Market vol. -\nCalibrated vol."], axis=1).rename(
         columns=renameDict).set_index(["Strike", "Maturity"])
 
-    return dividendDf, rateCurveDf, localVolatility, formattedTestingData, formattedTrainingData
+    return dividendDf, rateCurveDf, localVolatility, removeDuplicateIndex(formattedTestingData), removeDuplicateIndex(formattedTrainingData)
 
 
 def selectTrainingSet(rawData):
@@ -378,7 +384,7 @@ def loadCBOTData(pathFolder, fileName, asOfDate):
     #rawData["ImpliedVol"] =  impvol
 
     filteredData = removeDataViolatingStaticArbitrage(rawData.reset_index())
-    rawData = filteredData.set_index(["Strike", "Maturity"])
+    rawData = removeDuplicateIndex(filteredData.set_index(["Strike", "Maturity"]))
     trainingSet, testingSet = selectTrainingSet(rawData)
 
 
@@ -441,7 +447,7 @@ def loadESXData(pathFolder, fileName, asOfDate):
                                                        rawData["Price"])
 
     rawData["ImpliedVol"] = impvol
-    rawData = rawData.set_index(["Strike","Maturity"])
+    rawData = removeDuplicateIndex(rawData.set_index(["Strike","Maturity"]))
 
     trainingSet, testingSet = selectTrainingSet(rawData)
 

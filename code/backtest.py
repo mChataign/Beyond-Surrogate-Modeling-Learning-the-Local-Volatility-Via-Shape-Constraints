@@ -59,7 +59,7 @@ def MonteCarloPricerVectorized(S,
 def loadMCPrices(fileName, parseHeader=None):
     renameDict = {1: "Maturity", 
                   0 : "Strike"}
-    mcDf = pd.read_csv(workingFolder + fileName, 
+    mcDf = pd.read_csv(fileName, 
                        decimal=".", 
                        header=parseHeader).apply(pd.to_numeric).rename(columns=renameDict)
     mcDf["Maturity"] = mcDf["Maturity"].round(decimals=3)

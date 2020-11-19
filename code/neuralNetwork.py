@@ -633,11 +633,7 @@ def rawDupireFormula(priceTensor,
   dupireVol = tf.sqrt(dupireVar)
   return  dupireVol, dT, hK / tf.square(scaleTensor), dupireVar
 
-def saveDataModel(predictedPrices, volLocal, impliedVol, name):
-  predictedPrices.to_csv("Price" + name + ".csv")
-  volLocal.to_csv("localVol" + name + ".csv")
-  impliedVol.to_csv("impliedVol" + name + ".csv")
-  return
+
 
 ############################################################################# Tools function for Neural network architecture
 ############################################################################# Hard constraints

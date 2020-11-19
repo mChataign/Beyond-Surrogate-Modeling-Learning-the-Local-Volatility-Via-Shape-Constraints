@@ -189,14 +189,16 @@ def plotGridCustom(coordinates, zValue,
   y = coordinates[:,0][filteredValue]
   z = zValue[filteredValue].flatten()
   
-  fig = plt.figure(figsize=(20,10))
+  fig = plt.figure(figsize=(17,10))
   ax = fig.gca(projection='3d')
   
-  ax.set_xlabel(xTitle, fontsize=18, labelpad=20)
-  ax.set_ylabel(yTitle, fontsize=18, labelpad=20)
-  ax.set_zlabel(zTitle, fontsize=18, labelpad=10)
+  fontsize = 30
+  pad = 40
+  ax.set_xlabel(xTitle, color = "k", fontsize=fontsize, labelpad=pad * 0.7)
+  ax.set_ylabel(yTitle, color = "k", fontsize=fontsize, labelpad=pad * 1.0)
+  ax.set_zlabel(zTitle, color = "k", fontsize=fontsize, labelpad=pad * 0.8)
   
-  cmap=plt.get_cmap("inferno")
+  cmap=plt.get_cmap("jet")#("inferno")
   colors=cmap(z * 100 if zAsPercent else z)[np.newaxis, :, :3]
   surf = ax.plot_trisurf(x, y,
                          z * 100 if zAsPercent else z ,
@@ -210,12 +212,16 @@ def plotGridCustom(coordinates, zValue,
 
   if zAsPercent :
     ax.zaxis.set_major_formatter(mtick.PercentFormatter())
-  ax.view_init(elev=10., azim=az)
-  ax.set_title(Title, fontsize=24)
+  ax.view_init(elev=40., azim=az)
+  ax.set_ylim(np.amax(y), np.amin(y))
+  ax.set_title(Title, fontsize=fontsize * 1.2, rotation='vertical', x=0.1, y=0.8)
   ax.set_facecolor('white')
 
-  plt.tick_params(labelsize=16)
-
+  plt.tick_params(axis = "y", labelsize=fontsize * 0.9, pad = pad * 0.4, color = [1,0,0,1])
+  plt.tick_params(axis = "z", labelsize=fontsize * 0.9, pad = pad * 0.5, color = [1,0,0,1])
+  plt.tick_params(axis = "x", labelsize=fontsize * 0.9, pad = pad * 0.05, color = [1,0,0,1])
+  
+  plt.tight_layout()
   
   plt.show()
 
@@ -267,6 +273,9 @@ def plotSerie(data,
 
 ######################################################################### Training Diagnostic 
 
+def selectIndex(df, indexToKeep):
+    return df.loc[indexToKeep][ ~df.loc[indexToKeep].index.duplicated(keep='first') ]
+
 #Plot predicted value, benchmark value, absoluate error and relative error
 #It also compute RMSE between predValue and refValue
 #predValue : approximated value 
@@ -280,7 +289,18 @@ def predictionDiagnosis(predValue,
                         quantityName, 
                         az=320,
                         yMin = 0,
-                        yMax = 1):
+                        yMax = 1,
+                        threshold = None):
+  if threshold is not None :
+      filterIndex = refValue[refValue >= threshold].index
+      predictionDiagnosis(selectIndex(predValue, filterIndex), 
+                          selectIndex(refValue, filterIndex),
+                          quantityName,
+                          az=az,
+                          yMin = yMin,
+                          yMax = yMax,
+                          threshold = None)
+      return
   
   predValueFiltered = predValue[predValue.index.get_level_values("Maturity") > 0.001]
   refValueFiltered = refValue[refValue.index.get_level_values("Maturity") > 0.001]
@@ -317,7 +337,19 @@ def predictionDiagnosis(predValue,
   
   print("RMSE : ", np.sqrt(np.mean(np.square(absoluteError))) )
   
+  print("RMSE Relative: ", np.sqrt(np.mean(np.square(relativeError))) )
+  
   return
+
+def saveDataModel(predictedPrices, volLocal, impliedVol, name):
+  data = np.vstack([predictedPrices.sort_index().values, volLocal.sort_index().values, impliedVol.sort_index().values]).T
+  dataDf = pd.DataFrame(data, index = predictedPrices.sort_index().index, 
+                        columns = ["Price", "LocalVolatility", "ImpliedVol"])
+  dataDf.to_csv(name + ".csv")
+  return
+  
+def removeDuplicateIndex(df):
+    return selectIndex(df, df.index)
 
 #Diagnose Price, theta, gamma and local volatility
 def modelSummary(price, 
@@ -325,10 +357,35 @@ def modelSummary(price,
                  delta_T, 
                  gamma_K, 
                  benchDataset,
+                 S0,
+                 bootstrap,
                  sigma=0.3, 
                  az=40,
                  yMin = 0,
-                 yMax = 1):
+                 yMax = 1,
+                 thresholdPrice = None, 
+                 removeNaN = False,
+                 savePath = None):
+    
+  if thresholdPrice is not None :
+     filterPrice = benchDataset["Price"] >= thresholdPrice
+     keptPrices = benchDataset["Price"][filterPrice].index
+     modelSummary(selectIndex(price, keptPrices),
+                  selectIndex(volLocale, keptPrices),
+                  selectIndex(delta_T, keptPrices),
+                  selectIndex(gamma_K, keptPrices),
+                  selectIndex(benchDataset, keptPrices),
+                  S0,
+                  bootstrap,
+                  sigma=sigma,
+                  az=az,
+                  yMin = yMin,
+                  yMax = yMax,
+                  thresholdPrice = None, 
+                  removeNaN = removeNaN,
+                  savePath = None)
+     return
+  
   nbArbitrageViolations = ((delta_T < 0) + (gamma_K < 0)).sum()
   print("Number of static arbitrage violations : ", nbArbitrageViolations)
   print("Arbitrable total variance : ", price[((delta_T < 0) + (gamma_K < 0))])
@@ -364,6 +421,26 @@ def modelSummary(price,
                       az=340,
                       yMin = yMin,
                       yMax = yMax)
+  
+  #Calibrate implied volatilities for each predicted price in testing set
+  ImpVol = BS.vectorizedImpliedVolatilityCalibration(S0, bootstrap,
+                                                     benchDataset["Maturity"],
+                                                     benchDataset["Strike"],
+                                                     benchDataset["OptionType"],
+                                                     price, 
+                                                     removeNaN = removeNaN)
+  ImpVol = pd.Series(ImpVol, index = price.index).sort_index().dropna()
+  
+  predictionDiagnosis(ImpVol, 
+                      selectIndex(benchDataset['ImpliedVol'], ImpVol.index),
+                      " Implied vol ",
+                      yMin=yMin,
+                      yMax=yMax,
+                      az = az)
+  if savePath is not None : 
+      saveDataModel(removeDuplicateIndex(price), 
+                    removeDuplicateIndex(volLocale), 
+                    removeDuplicateIndex(ImpVol), savePath)  
   return
 
 
@@ -378,14 +455,16 @@ def plotImpliedVol(priceSurface,
                    az=40,
                    yMin = 0,
                    yMax = 1,
-                   relativeErrorVolMax = 10):
+                   relativeErrorVolMax = 10, 
+                   removeNaN = False):
     return plotImpliedVolConcrete(priceSurface[priceSurface.index.get_level_values("Maturity") > 0.001],
                                   refImpliedVol[refImpliedVol.index.get_level_values("Maturity") > 0.001],
                                   bootstrap = bootstrap,
                                   az=az,
                                   yMin = yMin,
                                   yMax = yMax,
-                                  relativeErrorVolMax = relativeErrorVolMax)
+                                  relativeErrorVolMax = relativeErrorVolMax, 
+                                  removeNaN = removeNaN)
 
 def plotImpliedVolConcrete(priceSurface,
                            refImpliedVol,
@@ -393,7 +472,8 @@ def plotImpliedVolConcrete(priceSurface,
                            az=40,
                            yMin = 0,
                            yMax = 1,
-                           relativeErrorVolMax = 10):
+                           relativeErrorVolMax = 10, 
+                           removeNaN = False):
     df = priceSurface.index.to_frame()
     df["Price"] = priceSurface
 
@@ -406,32 +486,33 @@ def plotImpliedVolConcrete(priceSurface,
                                                          x["Strike"],
                                                          x["Price"],
                                                          epsilon,
-                                                         x["OptionType"])[1]
+                                                         x["OptionType"],
+                                                         removeNaN = removeNaN)[1]
 
     impliedVol = df.apply(calibrationFunction, axis = 1).rename("Implied Volatility")
     impliedVolError = np.abs(impliedVol-refImpliedVol).rename('Absolute Error')
     relativeImpliedVolError = (impliedVolError / refImpliedVol).rename("Relative error (%)")
     
-    plotSerie(impliedVol, 
+    plotSerie(impliedVol.dropna(), 
               Title = 'Implied volatility surface', 
               az=az,
               yMin = yMin,
               yMax = yMax)
 
-    plotSerie(impliedVolError, 
+    plotSerie(impliedVolError.dropna(), 
               Title = 'Implied volatility error', 
               az=az,
               yMin = yMin,
               yMax = yMax)
     
-    plotSerie(relativeImpliedVolError.clip(0, relativeErrorVolMax / 100.0),
+    plotSerie(relativeImpliedVolError.clip(0, relativeErrorVolMax / 100.0).dropna(),
               Title = 'Implied volatility relative error', 
               az=az,
               yMin = yMin,
               yMax = yMax,
               zAsPercent = True)
   
-    print("Implied volalitity RMSE : ", np.sqrt(np.mean(np.square(impliedVolError))) )
+    print("Implied volalitity RMSE : ", np.sqrt(np.nanmean(np.square(impliedVolError))) )
 
     return impliedVol
 
@@ -462,6 +543,50 @@ def plotEachSmilePred(df, interpMethod):
     return
 
 
+def plotImpliedVolPrices(totalVariance, bootstrap, S0, benchDataset, 
+                         logMoneynessScale = False,
+                         yMin=0,
+                         yMax=1, 
+                         thresholdPrice = None):
+  MaturityPred = totalVariance.index.get_level_values("Maturity")
+  StrikePred = totalVariance.index.get_level_values("Strike")
+  impliedVolPred = np.sqrt(totalVariance / MaturityPred)
+  def priceFromImpliedVolatility(vol, bootstrap, T, K, S0):
+    q = bootstrap.dividendIntegral(T) / T
+    r = bootstrap.discountIntegral(T) / T
+    return BS.bsformula( -1, S0, K, r, T, vol, q=q)
+  resP = list(map(lambda x : priceFromImpliedVolatility(x[0], bootstrap, x[1], x[2], S0)[0],
+                  zip(impliedVolPred.values, MaturityPred, StrikePred)))
+  
+  priceImpli = pd.Series(resP, index = totalVariance.index).rename("Price")
+  refDataset = selectIndex(benchDataset, totalVariance.index) 
+  if logMoneynessScale:
+    if S0 < 0 :
+      raise Exception("Precise a correct the spot underlying value ")
+    pricePred = convertToLogMoneyness(priceImpli, S0)
+    benchDatasetScaled = convertToLogMoneyness(refDataset, S0)
+    yMinScaled = np.log(S0 / yMax)
+    yMaxScaled = np.log(S0 / yMin)
+    azimutIncrement = 180
+  else:
+    pricePred = priceImpli
+    benchDatasetScaled = refDataset
+    yMinScaled = yMin
+    yMaxScaled = yMax
+    azimutIncrement = 0
+  
+  priceRef = benchDatasetScaled["Price"]
+  predictionDiagnosis(pricePred,
+                      priceRef,
+                      "Price",
+                      az=320 + azimutIncrement,
+                      yMin=yMinScaled,
+                      yMax=yMaxScaled, 
+                      threshold = thresholdPrice)
+  return priceImpli
+
+
+
 # Diagnose Price, theta, gamma and local volatility
 def modelSummaryGatheral(totalVariance,
                          volLocale,
@@ -473,14 +598,37 @@ def modelSummaryGatheral(totalVariance,
                          yMin=0,
                          yMax=1,
                          logMoneynessScale=False,
-                         S0 = -1):
+                         S0 = -1,
+                         thresholdPrice = None,
+                         bootstrap = None,
+                         savePath = False):
+    
+    if thresholdPrice is not None :
+        filterPrice = benchDataset["Price"] >= thresholdPrice
+        keptPrices = benchDataset["Price"][filterPrice].index
+        modelSummaryGatheral(selectIndex(totalVariance, keptPrices) ,
+                             selectIndex(volLocale, keptPrices),
+                             selectIndex(delta_T, keptPrices),
+                             selectIndex(gamma_K, keptPrices),
+                             selectIndex(benchDataset, keptPrices),
+                             sigma=sigma,
+                             az=az,
+                             yMin = yMin,
+                             yMax = yMax,
+                             logMoneynessScale=logMoneynessScale,
+                             S0 = S0,
+                             thresholdPrice = None,
+                             bootstrap = bootstrap,
+                             savePath = False)
+        return
+    
     nbArbitrageViolations = ((delta_T < 0) + (gamma_K < 0)).sum()
     print("Number of static arbitrage violations : ", nbArbitrageViolations)
     print("Arbitrable total variance : ", totalVariance[((delta_T < 0) + (gamma_K < 0))])
     
     
     
-    refDataset = benchDataset.loc[totalVariance.index]
+    refDataset = selectIndex(benchDataset, totalVariance.index) 
     if logMoneynessScale:
         if S0 < 0 :
             raise Exception("Precise a correct the spot underlying value ")
@@ -503,9 +651,9 @@ def modelSummaryGatheral(totalVariance,
         yMaxScaled = yMax
         azimutIncrement = 0
 
-    priceRef = benchDatasetScaled["impliedTotalVariance"]
+    totalVarianceRef = benchDatasetScaled["impliedTotalVariance"]
     predictionDiagnosis(totalVariancePred,
-                        priceRef,
+                        totalVarianceRef,
                         "Implied Variance",
                         az=320 + azimutIncrement,
                         yMin=yMinScaled,
@@ -542,47 +690,19 @@ def modelSummaryGatheral(totalVariance,
                         az=340 + azimutIncrement,
                         yMin=yMinScaled,
                         yMax=yMaxScaled)
+    
+    
+    ImpPrice = plotImpliedVolPrices(impliedVolPred, bootstrap, S0, benchDataset,
+                                    logMoneynessScale = logMoneynessScale,
+                                    yMin=yMinScaled,
+                                    yMax=yMaxScaled)
+    if savePath is not None : 
+        saveDataModel(ImpPrice[ ~ImpPrice.index.duplicated(keep='first') ], 
+                      volLocalePred[ ~volLocalePred.index.duplicated(keep='first') ], 
+                      impliedVolPred[ ~impliedVolPred.index.duplicated(keep='first') ], 
+                      savePath)  
     return
 
-def plotImpliedVolPrices(totalVariance, bootstrap, S0, benchDataset, 
-                         logMoneynessScale = False,
-                         yMin=0,
-                         yMax=1,):
-  MaturityPred = totalVariance.index.get_level_values("Maturity")
-  StrikePred = totalVariance.index.get_level_values("Strike")
-  impliedVolPred = np.sqrt(totalVariance / MaturityPred)
-  def priceFromImpliedVolatility(vol, bootstrap, T, K, S0):
-    q = bootstrap.dividendIntegral(T) / T
-    r = bootstrap.discountIntegral(T) / T
-    return BS.bsformula( -1, S0, K, r, T, vol, q=q)
-  resP = list(map(lambda x : priceFromImpliedVolatility(x[0], bootstrap, x[1], x[2], S0)[0],
-                  zip(impliedVolPred.values, MaturityPred, StrikePred)))
-  
-  priceImpli = pd.Series(resP, index = totalVariance.index).rename("Price")
-  refDataset = benchDataset.loc[totalVariance.index]
-  if logMoneynessScale:
-    if S0 < 0 :
-      raise Exception("Precise a correct the spot underlying value ")
-    pricePred = convertToLogMoneyness(priceImpli, S0)
-    benchDatasetScaled = convertToLogMoneyness(refDataset, S0)
-    yMinScaled = np.log(S0 / yMax)
-    yMaxScaled = np.log(S0 / yMin)
-    azimutIncrement = 180
-  else:
-    pricePred = priceImpli
-    benchDatasetScaled = refDataset
-    yMinScaled = yMin
-    yMaxScaled = yMax
-    azimutIncrement = 0
-  
-  priceRef = benchDatasetScaled["Price"]
-  predictionDiagnosis(pricePred,
-                      priceRef,
-                      "Price",
-                      az=320 + azimutIncrement,
-                      yMin=yMinScaled,
-                      yMax=yMaxScaled)
-  return
 
 
 # Plotting function for surface
