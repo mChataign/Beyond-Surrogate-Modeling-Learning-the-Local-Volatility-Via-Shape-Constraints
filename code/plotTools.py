@@ -7,6 +7,7 @@ from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
 import matplotlib.ticker as mtick
 import BS
+import bootstrapping
 
 
 ######################################################################### Training loss
@@ -189,14 +190,14 @@ def plotGridCustom(coordinates, zValue,
   y = coordinates[:,0][filteredValue]
   z = zValue[filteredValue].flatten()
   
-  fig = plt.figure(figsize=(17,10))
+  fig = plt.figure(figsize=(15,9))
   ax = fig.gca(projection='3d')
   
-  fontsize = 30
-  pad = 40
-  ax.set_xlabel(xTitle, color = "k", fontsize=fontsize, labelpad=pad * 0.7)
+  fontsize = 15
+  pad = 20
+  ax.set_xlabel(xTitle, color = "k", fontsize=fontsize, labelpad=pad * 1.0)
   ax.set_ylabel(yTitle, color = "k", fontsize=fontsize, labelpad=pad * 1.0)
-  ax.set_zlabel(zTitle, color = "k", fontsize=fontsize, labelpad=pad * 0.8)
+  ax.set_zlabel(zTitle, color = "k", fontsize=fontsize, labelpad=pad * 1.0)
   
   cmap=plt.get_cmap("jet")#("inferno")
   colors=cmap(z * 100 if zAsPercent else z)[np.newaxis, :, :3]
@@ -214,7 +215,7 @@ def plotGridCustom(coordinates, zValue,
     ax.zaxis.set_major_formatter(mtick.PercentFormatter())
   ax.view_init(elev=40., azim=az)
   ax.set_ylim(np.amax(y), np.amin(y))
-  ax.set_title(Title, fontsize=fontsize * 1.2, rotation='vertical', x=0.1, y=0.8)
+  ax.set_title(Title, fontsize=fontsize * 1.2)#, rotation='vertical', x=0.1, y=0.8)
   ax.set_facecolor('white')
 
   plt.tick_params(axis = "y", labelsize=fontsize * 0.9, pad = pad * 0.4, color = [1,0,0,1])
@@ -601,7 +602,7 @@ def modelSummaryGatheral(totalVariance,
                          S0 = -1,
                          thresholdPrice = None,
                          bootstrap = None,
-                         savePath = False):
+                         savePath = None):
     
     if thresholdPrice is not None :
         filterPrice = benchDataset["Price"] >= thresholdPrice
@@ -619,7 +620,7 @@ def modelSummaryGatheral(totalVariance,
                              S0 = S0,
                              thresholdPrice = None,
                              bootstrap = bootstrap,
-                             savePath = False)
+                             savePath = savePath)
         return
     
     nbArbitrageViolations = ((delta_T < 0) + (gamma_K < 0)).sum()
@@ -636,7 +637,6 @@ def modelSummaryGatheral(totalVariance,
         volLocalePred = convertToLogMoneyness(volLocale, S0)
         delta_TPred = convertToLogMoneyness(delta_T, S0)
         gKRefPred = convertToLogMoneyness(gamma_K, S0)
-        pricePred = convertToLogMoneyness(pricePred, S0)
         benchDatasetScaled = convertToLogMoneyness(refDataset, S0)
         yMinScaled = np.log(S0 / yMax)
         yMaxScaled = np.log(S0 / yMin)
@@ -692,10 +692,10 @@ def modelSummaryGatheral(totalVariance,
                         yMax=yMaxScaled)
     
     
-    ImpPrice = plotImpliedVolPrices(impliedVolPred, bootstrap, S0, benchDataset,
+    ImpPrice = plotImpliedVolPrices(totalVariance, bootstrap, S0, benchDataset,
                                     logMoneynessScale = logMoneynessScale,
-                                    yMin=yMinScaled,
-                                    yMax=yMaxScaled)
+                                    yMin=yMin,
+                                    yMax=yMax)
     if savePath is not None : 
         saveDataModel(ImpPrice[ ~ImpPrice.index.duplicated(keep='first') ], 
                       volLocalePred[ ~volLocalePred.index.duplicated(keep='first') ], 
