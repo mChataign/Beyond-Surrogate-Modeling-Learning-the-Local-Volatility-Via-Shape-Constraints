@@ -5,6 +5,9 @@ Authors: Chataigner, Crepey and Dixon. If this code is used for research purpose
 
 
 # Overview
+Run the Master.ipynb or view the Master.html file to see a demo showing the backtesting of the GP, SSVI, Neural Network and Trinomial Tree model.
+The file also compares the backtesting results.
+## Other notebooks
 Notebook Tikhonov-Backtest.ipynb shows backtests based on local volatility from trinomial tree pricing : Crepey, S. (2002). Calibration of the local volatility in a trinomial tree using Tikhonov regularization. Inverse Problems, 19(1), 91.
 
 Notebook dupireNN.ipynb implements neural network local volatility from price with the Dupire formula.
