@@ -1,7 +1,9 @@
-# Non-parametric local volatility
-Authors: Chataigner, Crepey and Dixon. If this code is used for research purposes, please cite as:
+Authors: Chataigner, Cousin, Crepey, Dixon, and Gueye. 
 
+If this code is used for research purposes, please cite as:
 
+M. Chataigner, A. Cousin, S. Crepey, M.F. Dixon, and D. Gueye, [Beyond Surrogate Modeling: Learning the Local Volatility Via Shape Constraints](http://mypages.iit.edu/~mdixon7/preprints/local_vol.pdf), working paper, 2020.
+M. Chataigner, S. Crepey and M. Dixon, [Deep Local Volatility](https://www.mdpi.com/2227-9091/8/3/82), Risks 8(3), 82, Special Issue on Machine Learning in Finance, Eds. Thorsten Schmidt, 2020.
 
 
 # Overview
@@ -45,7 +47,9 @@ The BS folder contains some additional Python scripts for implied volatility est
 These notebooks are fully compatible with Google Colab but can also be used in a local notebook environment provided that Tensorflow is installed for Python 3 with a version at or above 2.0.
 For local deployment, please be aware of variable "workingFolder".
 
+The Matlab code implements the shape constrained GP code and is written by A.  Cousin and D. Gueye.
+
 # Data
 Several days of DAX index option chain data is provided in the data folder.
 S&P 500 and Eurostoxx 50 option prices are also included for more recent data.
-The notebook indicates which data file you should load for execution.
+The notebooks in the notebooks folder indicate which data file you should load for execution.
