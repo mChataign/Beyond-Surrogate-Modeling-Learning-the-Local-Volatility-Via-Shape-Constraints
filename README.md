@@ -49,7 +49,7 @@ For local deployment, please be aware of variable "workingFolder".
 
 The Matlab code implements the shape constrained GP code and is written by A.  Cousin and D. Gueye.
 
-# Data
+
 Several days of DAX index option chain data is provided in the data folder.
 S&P 500 and Eurostoxx 50 option prices are also included for more recent data.
 The notebooks in the notebooks folder indicate which data file you should load for execution.
