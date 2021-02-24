@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 from sklearn import linear_model
 import scipy
 
+import BS
+
 
 ######################################################################################################## Discounting
 #Compute the integral and return the linear interpolation function 
@@ -295,7 +297,17 @@ class NelsonSiegelSvenssonCalibrator:
         if not self.isCalibrated() :
             raise Exception("Please calibrate the model")
         return self.objectiveFunction(ttms, self.beta, self.tau)
-
+    
+    def forward(self, ttms):
+        if not self.isCalibrated() :
+            raise Exception("Please calibrate the model")
+        term0 = self.beta[0]
+        term1 = self.beta[1] * np.exp(- ttms / self.tau[0])
+        term2 = self.beta[2] * np.exp(- ttms / self.tau[0]) * (ttms / self.tau[0]) 
+        term3 = self.beta[3] * np.exp(- ttms / self.tau[1]) * (ttms / self.tau[1])
+        
+        return term0 + term1 + term2 + term3
+    
     def calibrate(self, ttms, rates):
         def rmse(a, b):
             return np.mean(np.square(a - b))
@@ -310,6 +322,46 @@ class NelsonSiegelSvenssonCalibrator:
         if self.verbose :
             print("Parameters ; beta : ", self.beta, " ; tau : ", self.tau)
             print("Error : ", res.fun)
+
+class TikhnovCalibrator:
+    def __init__(self, alpha):
+        self.trainGrid = None
+        self.trainRate = None
+        self.alpha = alpha
+
+    def isCalibrated(self):
+        return (self.trainGrid is not None) and (self.trainRate is not None)
+
+    def objectiveFunction(self, ttms, alpha):
+        timeGrid = np.union1d(ttms, self.trainGrid)
+        redundantPoints = np.isin(timeGrid, self.trainGrid, assume_unique=True)
+        SSstar = np.diag(redundantPoints.astype(int))
+        M = SSstar.shape[1]
+        N = self.trainGrid.size
+        
+        S = np.zeros((N, M), dtype = np.int32)
+        j = 0
+        for i in range(M):
+            if redundantPoints[i] : 
+                S[j,i] = 1
+                j += 1
+        L = np.zeros((M-2, M))
+        
+        for i in range(M-2):
+            L[i,i] = (timeGrid[i+1])/2/(timeGrid[i+1] - timeGrid[i])/(timeGrid[i+2] - timeGrid[i]) * np.sqrt((timeGrid[i] + timeGrid[i+2])/2)
+            L[i,i+1] = -(timeGrid[i+1])/2/(timeGrid[i+1] - timeGrid[i])/(timeGrid[i+2] - timeGrid[i+1]) * np.sqrt((timeGrid[i] + timeGrid[i+2])/2)
+            L[i,i+2] = -(timeGrid[i+1])/2/(timeGrid[i+2] - timeGrid[i+1])/(timeGrid[i+2] - timeGrid[i]) * np.sqrt((timeGrid[i] + timeGrid[i+2])/2)
+        return np.linalg.solve((SSstar + alpha * L.T @ L), S.T @ self.trainRate)[np.isin(timeGrid, ttms, assume_unique=True)]
+
+    def eval(self, ttms):
+        if not self.isCalibrated() :
+            raise Exception("Please calibrate the model")
+        return self.objectiveFunction(ttms, self.alpha)
+
+    def calibrate(self, ttms, rates):
+        series = pd.Series(rates, index = ttms).sort_index()
+        self.trainGrid = series.index.values
+        self.trainRate = series.values
 
 def interpLinear(formerGrid, formerValue, newGrid):
     f = interpolate.interp1d(formerGrid,
@@ -329,9 +381,10 @@ class bootstrappingLinReg(bootstrapping):
                  maturity):
         ############################################################################### Load data yield curve
         usedDiscount = self.loadDiscountCurve(path, asOfDate)
+        shortDiscount = usedDiscount[usedDiscount.index <= 0.1]
         plt.plot(usedDiscount.index.values,
                  usedDiscount.values, "+")
-        extendedGrid = np.linspace(min(usedDiscount.index.values),
+        extendedGrid = np.linspace(0.00000001,
                                    max(usedDiscount.index.values),
                                    1000)
         self.nelsonModel = self.nelsonSiegelInterp(usedDiscount)
@@ -339,6 +392,15 @@ class bootstrappingLinReg(bootstrapping):
         #usedDiscount = pd.Series(interpLinear( usedDiscount.index.values, usedDiscount.values, extendedGrid), index=extendedGrid)
         plt.plot(usedDiscount.index.values,
                  usedDiscount.values)
+        plt.title("Interpolated discount yield curve")
+        plt.show()
+        
+        
+        plt.plot(shortDiscount.index.values,
+                 shortDiscount.values, "+")
+        #usedDiscount = pd.Series(interpLinear( usedDiscount.index.values, usedDiscount.values, extendedGrid), index=extendedGrid)
+        plt.plot(usedDiscount[usedDiscount.index <= 0.3].index.values,
+                 usedDiscount[usedDiscount.index <= 0.3].values)
         plt.title("Interpolated discount yield curve")
         plt.show()
 
@@ -359,13 +421,22 @@ class bootstrappingLinReg(bootstrapping):
         ################################################################################# Get short rate from zero coupon
         zeroCouponVar = zeroCouponCurve.div(zeroCouponCurve.shift()).dropna()
         timeDelta = zeroCouponCurve.index.to_series().diff().dropna()
-        shortRate = -np.log(zeroCouponVar) / timeDelta  # Short rate piecewise constant
-
-        shortRateInterp = interpolate.interp1d(shortRate.index,
-                                               shortRate,  # riskFreeCurve[name],
-                                               fill_value='extrapolate',
-                                               kind='next')
+        #shortRate = -np.log(zeroCouponVar) / timeDelta  # Short rate piecewise constant
+        
+        #shortRateInterp = interpolate.interp1d(shortRate.index,
+        #                                       shortRate,  # riskFreeCurve[name],
+        #                                       fill_value='extrapolate',
+        #                                       kind='next')
+        
+        shortRate = pd.Series(self.nelsonModel.forward(zeroCouponVar.index.values), index = zeroCouponVar.index)
+        shortRateInterp = lambda x : self.nelsonModel.forward(x)
+        
         plt.plot(shortRate)
+        plt.plot(pd.Series(self.nelsonModel.forward(zeroCouponVar.index.values), index = zeroCouponVar.index))
+        plt.title("Discount short rate curve")
+        plt.show()
+        
+        plt.plot(shortRate[shortRate.index <= 0.3])
         plt.title("Discount short rate curve")
         plt.show()
 
@@ -394,16 +465,7 @@ class bootstrappingLinReg(bootstrapping):
 
 
         ######################################################################### Extract dividend zero coupon and dividend short rate from call put-parity
-        forwardCallPut = callPrice - putPrice
-        #plt.plot(maturity, zeroCouponInterp(maturity))
-        #plt.show()
-        zeroCouponDiv = ((forwardCallPut + Strike * self.getZeroCouponPrice(maturity)) / S0)
-        zeroCouponDiv.loc[zeroCouponDiv.size] = 1.0
-        matCopy = maturity.copy()
-        matCopy.loc[matCopy.size] = 0.0
-        divCurve, shortRateDiv = self.getDividendFromCallPutParity(matCopy.sort_index(), zeroCouponDiv.sort_index())
-        self.forwardCallPut = forwardCallPut
-        self.zeroCouponDiv = zeroCouponDiv
+        divCurve, shortRateDiv = self.getDividendFromCallPutParity(callPrice, putPrice, Strike, maturity, S0)
 
         ######################################################################### Extract dividend yield from dividend zero coupon
         yieldDiv = pd.Series(list(map(zeroYield, list(zip(divCurve.values, divCurve.index)))),
@@ -444,6 +506,12 @@ class bootstrappingLinReg(bootstrapping):
         interpNelson = NelsonSiegelSvenssonCalibrator()
         interpNelson.calibrate(curve.index.values, curve.values)
         return interpNelson
+    
+    
+    def tikhonovInterp(self, curve):
+        interpTikhonov = TikhnovCalibrator(0.1)
+        interpTikhonov.calibrate(curve.index.values, curve.values)
+        return interpTikhonov
 
     def loadDiscountCurve(self, path, asOfDate):
         # source : https://www.treasury.gov/resource-center/data-chart-center/interest-rates/pages/TextView.aspx?data=yieldYear&year=2019
@@ -458,20 +526,33 @@ class bootstrappingLinReg(bootstrapping):
     def getZeroCouponPrice(self, t):
         return np.exp(- self.discountIntegral(t))
 
-    def getDividendFromCallPutParity(self, maturity, zeroCouponDiv):
+    def getDividendFromCallPutParity(self, callPrice, putPrice, 
+                                     Strike, maturity, S0):
+        forwardCallPut = callPrice - putPrice
+        #plt.plot(maturity, zeroCouponInterp(maturity))
+        #plt.show()
+        
+        zeroCouponDiv = ((forwardCallPut + Strike * self.getZeroCouponPrice(maturity)) / S0)
+        zeroCouponDiv.loc[zeroCouponDiv.size] = 1.0
+        zeroCouponDiv.sort_index(inplace = True)
+        
+        matCopy = maturity.copy()
+        matCopy.loc[matCopy.size] = 0.0
+        matCopy.sort_index(inplace = True)
+        
         reg = linear_model.LinearRegression()
 
         def featureMap(mat, order):
             return np.vstack([np.power(mat, i) for i in range(order)]).T
 
-        features = featureMap(maturity, 4)
+        features = featureMap(matCopy, 4)
 
         reg.fit(features, zeroCouponDiv.values)
 
-        pred = reg.predict(featureMap(np.unique(maturity), 4))
-        divCurve = pd.Series(pred, index=np.unique(maturity)).sort_index()
+        pred = reg.predict(featureMap(np.unique(matCopy), 4))
+        divCurve = pd.Series(pred, index=np.unique(matCopy)).sort_index()
         plt.plot(divCurve)
-        plt.plot(maturity, zeroCouponDiv.values, "+")
+        plt.plot(matCopy, zeroCouponDiv.values, "+")
         plt.title("Dividend zero coupon curve")
         plt.show()
 
@@ -481,8 +562,158 @@ class bootstrappingLinReg(bootstrapping):
         plt.plot(shortRateDiv)
         plt.title("Dividend short rate curve")
         plt.show()
+        
+        self.forwardCallPut = forwardCallPut
+        self.zeroCouponDiv = pd.Series(zeroCouponDiv.values, index = matCopy.values) #index = pd.MultiIndex.from_arrays([Strike.values, maturity.values]))
+        
         return divCurve, shortRateDiv
+        
 
+
+class bootstrappingLinRegShortRate(bootstrappingLinReg):
+    def __init__(self,
+                 path,
+                 S0,
+                 Strike,
+                 asOfDate,
+                 callPrice,
+                 putPrice,
+                 maturity):
+        super().__init__(path,
+                         S0,
+                         Strike,
+                         asOfDate,
+                         callPrice,
+                         putPrice,
+                         maturity)
+                         
+    def getDividendFromCallPutParity(self, callPrice, putPrice, 
+                                     Strike, maturity, S0):
+        forwardCallPut = callPrice - putPrice
+        #Tankov version
+        
+        dividendInt = (np.log(forwardCallPut + Strike * self.getZeroCouponPrice(maturity))).sort_index()
+        
+        matCopy = maturity.copy().sort_index()
+        
+        reg = linear_model.LinearRegression()
+
+        def featureMap(mat, order):
+            return np.vstack([np.power(mat, i) for i in range(order)]).T
+
+        features = featureMap(matCopy, 3)
+
+        reg.fit(features, dividendInt.values)
+
+        pred = reg.predict(featureMap(np.unique(matCopy), 3))
+        divCurve = pd.Series(-(pred - np.log(S0)), index=np.unique(matCopy)).sort_index()
+        divCurve.loc[0.0] = 0.0
+        divCurve.sort_index(inplace = True)
+        
+        plt.plot(divCurve)
+        plt.plot(matCopy, -(dividendInt.values  - np.log(S0)), "+")
+        plt.title("Integrated Dividend short rate curve")
+        plt.show()
+        
+        
+        divVar = divCurve.diff().dropna()
+        timeDivDelta = divCurve.index.to_series().diff().dropna()
+        shortRateDiv = divVar / timeDivDelta
+        plt.plot(shortRateDiv)
+        #print(divCurve)
+        #print(shortRateDiv)
+        plt.title("Dividend short rate curve")
+        plt.show()
+        
+        zeroCouponDiv = np.exp(-divCurve)
+        plt.plot(zeroCouponDiv)
+        plt.title("Dividend zero coupon curve")
+        plt.show()
+        
+        self.forwardCallPut = forwardCallPut
+        self.zeroCouponDiv = pd.Series(zeroCouponDiv.values, index = matCopy.values) #index = pd.MultiIndex.from_arrays([Strike.values, maturity.values]))
+        
+        return zeroCouponDiv, shortRateDiv
+
+class bootstrappingImplied(bootstrappingLinReg):
+    def __init__(self,
+                 path,
+                 S0,
+                 Strike,
+                 asOfDate,
+                 callPrice,
+                 putPrice,
+                 maturity,
+                 callImpVol,
+                 putImpVol):
+        self.callImpVol = callImpVol
+        self.putImpVol = putImpVol
+        super().__init__(path,
+                         S0,
+                         Strike,
+                         asOfDate,
+                         callPrice,
+                         putPrice,
+                         maturity)
+                         
+    def getDividendFromCallPutParity(self, callPrice, putPrice, 
+                                     Strike, maturity, S0):
+        forwardCallPut = callPrice - putPrice
+        #Tankov version
+        
+        dividendInt = (np.log(forwardCallPut + Strike * self.getZeroCouponPrice(maturity))).sort_index()
+        
+        matCopy = maturity.copy().sort_index()
+        
+        callSeries = pd.Series(np.ones_like(callPrice), index = callPrice.index)
+        putSeries = pd.Series(-np.ones_like(putPrice), index = putPrice.index)
+        impDividendTrain = BS.vectorizedImpliedDividendCalibration(S0,
+                                                                   self,
+                                                                   matCopy.append(matCopy.copy()),
+                                                                   Strike.append(Strike.copy()),
+                                                                   callSeries.append(putSeries),
+                                                                   callPrice.append(putPrice),
+                                                                   self.callImpVol.append(self.putImpVol))
+        
+        
+        impDividendTrain = pd.Series(impDividendTrain, index = matCopy.append(matCopy.copy()).values ).sort_index()
+        divCurve = impDividendTrain.sort_index().groupby(by=impDividendTrain.index).mean()
+        divCurve.loc[0.0] = 0.0
+        divCurve.sort_index(inplace = True)
+        
+        plt.plot(divCurve)
+        #plt.plot(matCopy, -(dividendInt.values  - np.log(S0)), "+")
+        plt.plot(impDividendTrain, "+")
+        plt.title("Integrated Dividend short rate curve")
+        plt.show()
+        
+        shortTermdivCurve = divCurve[divCurve.index <= 0.3]
+        plt.plot(shortTermdivCurve)
+        shortMaturity = matCopy[matCopy <= shortTermdivCurve.index[-1]]
+        #plt.plot(shortMaturity, -(dividendInt.head(shortMaturity.size).values  - np.log(S0)), "+")
+        plt.plot(impDividendTrain[impDividendTrain.index <= 0.3], "+")
+        plt.title("Integrated Dividend short rate curve")
+        plt.show()
+        
+        
+        divVar = divCurve.diff().dropna()
+        timeDivDelta = divCurve.index.to_series().diff().dropna()
+        shortRateDiv = divVar / timeDivDelta
+        plt.plot(shortRateDiv)
+        #print(divCurve)
+        #print(shortRateDiv)
+        plt.title("Dividend short rate curve")
+        plt.show()
+        
+        zeroCouponDiv = np.exp(-divCurve)
+        plt.plot(zeroCouponDiv)
+        plt.title("Dividend zero coupon curve")
+        plt.show()
+        
+        self.forwardCallPut = forwardCallPut
+        self.zeroCouponDiv = zeroCouponDiv #index = pd.MultiIndex.from_arrays([Strike.values, maturity.values]))
+        
+        return zeroCouponDiv, shortRateDiv
 
 class bootstrappingAveraged(bootstrappingLinReg):
     def __init__(self,
@@ -502,17 +733,33 @@ class bootstrappingAveraged(bootstrappingLinReg):
                          maturity)
 
 
-    def getDividendFromCallPutParity(self, maturity, zeroCouponDiv):
-        averagesDiv = pd.DataFrame(np.vstack([zeroCouponDiv, maturity]).T,
+    def getDividendFromCallPutParity(self, callPrice, putPrice, 
+                                     Strike, maturity, S0):
+        forwardCallPut = callPrice - putPrice
+        #plt.plot(maturity, zeroCouponInterp(maturity))
+        #plt.show()
+        
+        zeroCouponDiv = ((forwardCallPut + Strike * self.getZeroCouponPrice(maturity)) / S0)
+        zeroCouponDiv.loc[zeroCouponDiv.size] = 1.0
+        zeroCouponDiv.sort_index(inplace = True)
+        
+        matCopy = maturity.copy()
+        matCopy.loc[matCopy.size] = 0.0
+        matCopy.sort_index(inplace = True)
+        
+        print(matCopy.shape)
+        print(zeroCouponDiv.shape)
+        
+        averagesDiv = pd.DataFrame(np.vstack([zeroCouponDiv, matCopy]).T,
                                    index=zeroCouponDiv.index,
                                    columns=["zeroCouponDiv", "Maturity"]).groupby("Maturity").mean()
         averagesDivInterp = interpolate.interp1d(averagesDiv.index,
                                                  np.ravel(averagesDiv.values),  # riskFreeCurve[name],
                                                  fill_value='extrapolate',
                                                  kind='next')
-        divCurve = pd.Series(averagesDivInterp(np.unique(maturity)), index=np.unique(maturity)).sort_index()
+        divCurve = pd.Series(averagesDivInterp(np.unique(matCopy)), index=np.unique(matCopy)).sort_index()
         plt.plot(divCurve)
-        plt.plot(maturity, zeroCouponDiv.values, "+")
+        plt.plot(matCopy, zeroCouponDiv.values, "+")
         plt.title("Dividend zero coupon curve")
         plt.show()
 
@@ -522,6 +769,10 @@ class bootstrappingAveraged(bootstrappingLinReg):
         plt.plot(shortRateDiv)
         plt.title("Dividend short rate curve")
         plt.show()
+        
+        self.forwardCallPut = forwardCallPut
+        self.zeroCouponDiv = pd.Series(zeroCouponDiv.values, index = matCopy.values) #index = pd.MultiIndex.from_arrays([Strike.values, maturity.values]))
+        
         return divCurve, shortRateDiv
 
 

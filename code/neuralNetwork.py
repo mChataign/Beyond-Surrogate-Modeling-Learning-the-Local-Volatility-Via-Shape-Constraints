@@ -10,8 +10,10 @@ import dataSetConstruction
 import bootstrapping
 import numpy as np
 import pandas as pd
+import loadData
+#tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+tf.logging.set_verbosity(tf.logging.ERROR)
 tf.disable_v2_behavior()
-tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 
 activateScaling = False
 transformCustom = dataSetConstruction.transformCustomMinMax if activateScaling else dataSetConstruction.transformCustomId
@@ -107,6 +109,7 @@ def create_train_model(NNFactory,
     nbEpoch = hyperparameters["maxEpoch"]
     fixedLearningRate = (None if hyperparameters["FixedLearningRate"] else hyperparameters["LearningRateStart"])
     patience = hyperparameters["Patience"]
+    useArtificalGrid = hyperparameters["ArtificialPenalizationGrid"] if "ArtificialPenalizationGrid" in  hyperparameters else True
 
     # Go through num_iters iterations (ignoring mini-batching)
     activateLearningDecrease = (~ hyperparameters["FixedLearningRate"])
@@ -200,8 +203,10 @@ def create_train_model(NNFactory,
     TensorList[0] = price_pred_tensor_sc
 
     # Define a loss function
-    pointwiseError = tf.reduce_mean(tf.abs(price_pred_tensor_sc - y) / vegaRef)
-    errors = tf.add_n([pointwiseError] + penalizationList1) #tf.add_n([pointwiseError] + penalizationList)
+    pointwiseError = tf.sqrt(tf.reduce_mean(tf.square(price_pred_tensor_sc - y) / vegaRef))
+    #pointwiseError = tf.reduce_mean(tf.abs(tf.log(price_pred_tensor_sc) - tf.log(y)) / vegaRef)
+    errors = tf.add_n([pointwiseError] + (penalizationList1 if useArtificalGrid else penalizationList))  #tf.add_n([pointwiseError] + penalizationList)
+    #loss = tf.reduce_mean(errors) 
     loss = tf.log(tf.reduce_mean(errors))
 
     # Define a train operation to minimize the loss
@@ -411,8 +416,10 @@ def create_eval_model(NNFactory,
     TensorList[0] = price_pred_tensor_sc
 
     # Define a loss function
-    pointwiseError = tf.reduce_mean(tf.abs(price_pred_tensor_sc - y) / vegaRef)
+    pointwiseError = tf.sqrt(tf.reduce_mean(tf.square(price_pred_tensor_sc - y) / vegaRef))
+    #pointwiseError = tf.reduce_mean(tf.abs(tf.log(price_pred_tensor_sc) - tf.log(y)) / vegaRef)
     errors = tf.add_n([pointwiseError] + penalizationList)
+    #loss = tf.reduce_mean(errors) 
     loss = tf.log(tf.reduce_mean(errors))
 
     # Define a train operation to minimize the loss
@@ -545,8 +552,10 @@ def evalVolLocale(NNFactory,
     TensorList[0] = price_pred_tensor_sc
 
     # Define a loss function
-    pointwiseError = tf.reduce_mean(tf.abs(price_pred_tensor_sc - y) / vegaRef)
+    pointwiseError = tf.sqrt(tf.reduce_mean(tf.square(price_pred_tensor_sc - y) / vegaRef))
+    #pointwiseError = tf.reduce_mean(tf.abs(tf.log(price_pred_tensor_sc) - tf.log(y)) / vegaRef)
     errors = tf.add_n([pointwiseError] + penalizationList1)
+    #loss = tf.reduce_mean(errors) 
     loss = tf.log(tf.reduce_mean(errors))
 
     optimizer = tf.train.AdamOptimizer(learning_rate=learningRateTensor)
@@ -928,8 +937,7 @@ def NNArchitectureConstrainedDupire(n_units,
     lowerBoundGamma = tf.constant(hyperparameters["lowerBoundGamma"])
     grad_penalty = lambdas * tf.reduce_mean(tf.nn.relu(-dT + lowerBoundTheta) / vegaRef)
     HSScaled = HS / tf.square(scaleTensor)
-    hessian_penalty = lambdas * hyperparameters["lambdaGamma"] * tf.reduce_mean(
-        tf.nn.relu(- HSScaled + lowerBoundGamma) / vegaRef)
+    hessian_penalty = hyperparameters["lambdaGamma"] * tf.reduce_mean( tf.nn.relu(- HSScaled + lowerBoundGamma) / vegaRef)
 
     return out, [out, dupireVol, dT, HSScaled, dupireVar], [grad_penalty, hessian_penalty], evalAndFormatDupireResult
 
@@ -976,8 +984,7 @@ def NNArchitectureConstrainedRawDupire(n_units,
     lowerBoundTheta = tf.constant(hyperparameters["lowerBoundTheta"])
     lowerBoundGamma = tf.constant(hyperparameters["lowerBoundGamma"])
     grad_penalty = lambdas * tf.reduce_mean(tf.nn.relu(-theta + lowerBoundTheta) / vegaRef)
-    hessian_penalty = lambdas * hyperparameters["lambdaGamma"] * tf.reduce_mean(
-        tf.nn.relu(-hK + lowerBoundGamma) / vegaRef)
+    hessian_penalty = hyperparameters["lambdaGamma"] * tf.reduce_mean( tf.nn.relu(-hK + lowerBoundGamma) / vegaRef)
 
     return out, [out, dupireVol, theta, hK, dupireVar], [grad_penalty, hessian_penalty], evalAndFormatDupireResult
 
@@ -1000,6 +1007,7 @@ def NNArchitectureVanillaSoftDupire(n_units, strikeTensor,
                                     hyperparameters,
                                     IsTraining=True):
     inputLayer = tf.concat([strikeTensor, maturityTensor], axis=-1)
+    #inputLayer = tf.concat([strikeTensor, tf.log(maturityTensor)], axis=-1)
     # First layer
     hidden1 = unconstrainedLayer(n_units=n_units,
                                  tensor=inputLayer,
@@ -1189,8 +1197,9 @@ def create_train_model_gatheral(NNFactory,
                                 modelName="bestModel"):
     hidden_nodes = hyperparameters["nbUnits"]
     nbEpoch = hyperparameters["maxEpoch"]
-    fixedLearningRate = (None if hyperparameters["FixedLearningRate"] else hyperparameters["LearningRateStart"])
+    fixedLearningRate = (None if (("FixedLearningRate" in hyperparameters) and hyperparameters["FixedLearningRate"]) else hyperparameters["LearningRateStart"])
     patience = hyperparameters["Patience"]
+    useLogMaturity = (hyperparameters["UseLogMaturity"] if ("UseLogMaturity" in hyperparameters) else False)
 
     # Go through num_iters iterations (ignoring mini-batching)
     activateLearningDecrease = (~ hyperparameters["FixedLearningRate"])
@@ -1219,22 +1228,58 @@ def create_train_model_gatheral(NNFactory,
     colMoneynessIndex = dataSet.columns.get_loc("logMoneyness")
     maxColFunction = scaler.data_max_[colMoneynessIndex]
     minColFunction = scaler.data_min_[colMoneynessIndex]
-    scF = (maxColFunction - minColFunction)
-    scaleTensor = tf.constant(scF, dtype=tf.float32)
+    scF = (maxColFunction - minColFunction) #0
+    scaleTensor = tf.constant(scF, dtype=tf.float32) #1
     moneynessMinTensor = tf.constant(minColFunction, dtype=tf.float32)
-
-    #Grid on which is applied Penalization
-    t = np.linspace(scaler.data_min_[dataSet.columns.get_loc("Maturity")],
-                    4 * scaler.data_max_[dataSet.columns.get_loc("Maturity")],
-                    num=100)
+    
+    
+    # Get scaling for maturity
+    colMaturityIndex = dataSet.columns.get_loc("logMaturity") if useLogMaturity else dataSet.columns.get_loc("Maturity")
+    maxColFunctionMat = scaler.data_max_[colMaturityIndex]
+    minColFunctionMat = scaler.data_min_[colMaturityIndex] #0
+    scFMat = (maxColFunctionMat - minColFunctionMat) #1
+    scaleTensorMaturity = tf.constant(scFMat, dtype=tf.float32)
+    maturityMinTensor = tf.constant(minColFunctionMat, dtype=tf.float32)
+    
+    tensorDict = {}
+    tensorDict["Maturity"] = Maturity
+    tensorDict["Moneyness"] = Moneyness
+    tensorDict["scaleTensorMoneyness"] = scaleTensor
+    tensorDict["scaleTensorMaturity"] = scaleTensorMaturity
+    tensorDict["moneynessMinTensor"] = moneynessMinTensor
+    tensorDict["maturityMinTensor"] = maturityMinTensor
+    tensorDict["lossWeighting"] = vegaRef
+    
+    tensorDictPenalization = {}
+    tensorDictPenalization["Maturity"] = MaturityPenalization
+    tensorDictPenalization["Moneyness"] = MoneynessPenalization
+    tensorDictPenalization["scaleTensorMoneyness"] = scaleTensor
+    tensorDictPenalization["scaleTensorMaturity"] = scaleTensorMaturity
+    tensorDictPenalization["moneynessMinTensor"] = moneynessMinTensor
+    tensorDictPenalization["maturityMinTensor"] = maturityMinTensor
+    tensorDictPenalization["lossWeighting"] = vegaRefPenalization
+        
+    #Grid on which is applied Penalization [0, 2 * maxMaturity] and [minMoneyness, 2 * maxMoneyness]
     #k = np.linspace(scaler.data_min_[dataSet.columns.get_loc("logMoneyness")],
-    #                scaler.data_max_[dataSet.columns.get_loc("logMoneyness")],
+    #                2.0 * scaler.data_max_[dataSet.columns.get_loc("logMoneyness")],
     #                num=50)
-    #t = np.linspace(0, 4, num=100)
-
-    k = np.linspace((np.log(0.5) - minColFunction) / scF,
-                    (np.log(2.0) - minColFunction) / scF,
+    
+    #k = np.linspace((np.log(0.5) + minColFunction) / scF,
+    #                (np.log(2.0) + maxColFunction) / scF,
+    #                num=50)
+    
+    k = np.linspace(np.log(0.5) / scF,
+                    (np.log(2.0) + maxColFunction - minColFunction) / scF,
                     num=50)
+    
+    if useLogMaturity :
+        #t = np.linspace(minColFunctionMat, np.log(2) + maxColFunctionMat, num=100)
+        t = np.linspace(0, (np.log(2) + maxColFunctionMat - minColFunctionMat) / scFMat, num=100)
+    else :
+        #t = np.linspace(0, 4, num=100)
+        #t = np.linspace(minColFunctionMat, 2 * maxColFunctionMat, num=100)
+        t = np.linspace(0, (2 * maxColFunctionMat - minColFunctionMat) / scFMat, num=100)
+    
     penalizationGrid = np.meshgrid(k, t)
     tPenalization = np.ravel(penalizationGrid[1])
     kPenalization = np.ravel(penalizationGrid[0])
@@ -1246,45 +1291,31 @@ def create_train_model_gatheral(NNFactory,
     if activateRegularization:  # Add pseudo local volatility regularisation
         vol_pred_tensor, TensorList, penalizationList, formattingFunction = addDupireRegularisation(
             *NNFactory(hidden_nodes,
-                       Moneyness,
-                       Maturity,
-                       scaleTensor,
-                       moneynessMinTensor,
-                       vegaRef,
+                       tensorDict,
                        hyperparameters),
             vegaRef,
             hyperparameters)
         vol_pred_tensor1, TensorList1, penalizationList1, formattingFunction1 = addDupireRegularisation(
             *NNFactory(hidden_nodes,
-                       MoneynessPenalization,
-                       MaturityPenalization,
-                       scaleTensor,
-                       moneynessMinTensor,
-                       vegaRefPenalization,
+                       tensorDictPenalization,
                        hyperparameters),
             vegaRefPenalization,
             hyperparameters)
     else:
         vol_pred_tensor, TensorList, penalizationList, formattingFunction = NNFactory(hidden_nodes,
-                                                                                      Moneyness,
-                                                                                      Maturity,
-                                                                                      scaleTensor,
-                                                                                      moneynessMinTensor,
-                                                                                      vegaRef,
+                                                                                      tensorDict,
                                                                                       hyperparameters)
         vol_pred_tensor1, TensorList1, penalizationList1, formattingFunction1 = NNFactory(hidden_nodes,
-                                                                                          MoneynessPenalization,
-                                                                                          MaturityPenalization,
-                                                                                          scaleTensor,
-                                                                                          moneynessMinTensor,
-                                                                                          vegaRefPenalization,
+                                                                                          tensorDictPenalization,
                                                                                           hyperparameters)
 
     vol_pred_tensor_sc = vol_pred_tensor
-    TensorList[0] = tf.square(vol_pred_tensor_sc) * Maturity
+    unscaledMaturityTensor = (Maturity * scaleTensorMaturity + maturityMinTensor)
+    maturityOriginal = tf.exp(unscaledMaturityTensor) if useLogMaturity else  unscaledMaturityTensor
+    TensorList[0] = tf.square(vol_pred_tensor_sc) * maturityOriginal
 
     # Define a loss function
-    pointwiseError = tf.reduce_mean(tf.abs(vol_pred_tensor_sc - y) / vegaRef)
+    pointwiseError = tf.sqrt(tf.reduce_mean(tf.square(vol_pred_tensor_sc - y) / vegaRef))
     errors = tf.add_n([pointwiseError] + penalizationList1) #tf.add_n([pointwiseError] + penalizationList)
     loss = tf.log(tf.reduce_mean(errors))
 
@@ -1301,14 +1332,12 @@ def create_train_model_gatheral(NNFactory,
     sess.run(init)
     n = dataSet.shape[0]
     scaledInput = dataSetConstruction.transformCustomMinMax(dataSet, scaler)
-
-    maturity = dataSet["Maturity"].values.reshape(n, 1)
     loss_serie = []
 
     def createFeedDict(batch):
         batchSize = batch.shape[0]
         feedDict = {Moneyness: scaledInput["logMoneyness"].values.reshape(batchSize, 1),#scaledInput["logMoneyness"].loc[batch.index].drop_duplicates().values.reshape(batchSize, 1),
-                    Maturity: batch["Maturity"].values.reshape(batchSize, 1),
+                    Maturity: scaledInput["logMaturity"].values.reshape(batchSize, 1) if useLogMaturity else scaledInput["Maturity"].values.reshape(batchSize, 1),
                     y: batch["ImpliedVol"].values.reshape(batchSize, 1),
                     MoneynessPenalization : np.expand_dims(kPenalization, 1),
                     MaturityPenalization : np.expand_dims(tPenalization, 1),
@@ -1378,9 +1407,9 @@ def create_train_model_gatheral(NNFactory,
     end = time.time()
     print("Training Time : ", end - start)
 
-    print(tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES))
+    #print(tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES))
     lossEpochSerie = pd.Series(loss_serie)
-    lossEpochSerie.to_csv("loss" + modelName + ".csv")
+    lossEpochSerie.to_csv("loss" + modelName + ".csv", header = True)
 
     return formattingFunction(*evalList, loss_serie, dataSet, scaler)
 
@@ -1398,11 +1427,20 @@ def create_eval_model_gatheral(NNFactory,
                                scaler,
                                modelName="bestModel"):
     hidden_nodes = hyperparameters["nbUnits"]
+    nbEpoch = hyperparameters["maxEpoch"]
+    fixedLearningRate = (None if (("FixedLearningRate" in hyperparameters) and hyperparameters["FixedLearningRate"]) else hyperparameters["LearningRateStart"])
+    patience = hyperparameters["Patience"]
+    useLogMaturity = (hyperparameters["UseLogMaturity"] if ("UseLogMaturity" in hyperparameters) else False)
 
     # Go through num_iters iterations (ignoring mini-batching)
     activateLearningDecrease = (~ hyperparameters["FixedLearningRate"])
     learningRate = hyperparameters["LearningRateStart"]
+    learningRateEpoch = 0
+    finalLearningRate = hyperparameters["FinalLearningRate"]
 
+    batch_size = hyperparameters["batchSize"]
+
+    start = time.time()
     # Reset the graph
     resetTensorflow()
 
@@ -1416,26 +1454,63 @@ def create_eval_model_gatheral(NNFactory,
     vegaRefPenalization = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='vegaRefPenalization')
     learningRateTensor = tf.placeholder(tf.float32, [])
 
+
     # Get scaling for strike
     colMoneynessIndex = dataSet.columns.get_loc("logMoneyness")
     maxColFunction = scaler.data_max_[colMoneynessIndex]
     minColFunction = scaler.data_min_[colMoneynessIndex]
-    scF = (maxColFunction - minColFunction)
-    scaleTensor = tf.constant(scF, dtype=tf.float32)
+    scF = (maxColFunction - minColFunction) #0
+    scaleTensor = tf.constant(scF, dtype=tf.float32) #1
     moneynessMinTensor = tf.constant(minColFunction, dtype=tf.float32)
-
-    #Grid on which is applied Penalization
-    t = np.linspace(scaler.data_min_[dataSet.columns.get_loc("Maturity")],
-                    4 * scaler.data_max_[dataSet.columns.get_loc("Maturity")],
-                    num=100)
+    
+    
+    # Get scaling for maturity
+    colMaturityIndex = dataSet.columns.get_loc("logMaturity") if useLogMaturity else dataSet.columns.get_loc("Maturity")
+    maxColFunctionMat = scaler.data_max_[colMaturityIndex]
+    minColFunctionMat = scaler.data_min_[colMaturityIndex] #0
+    scFMat = (maxColFunctionMat - minColFunctionMat) #1
+    scaleTensorMaturity = tf.constant(scFMat, dtype=tf.float32)
+    maturityMinTensor = tf.constant(minColFunctionMat, dtype=tf.float32)
+    
+    tensorDict = {}
+    tensorDict["Maturity"] = Maturity
+    tensorDict["Moneyness"] = Moneyness
+    tensorDict["scaleTensorMoneyness"] = scaleTensor
+    tensorDict["scaleTensorMaturity"] = scaleTensorMaturity
+    tensorDict["moneynessMinTensor"] = moneynessMinTensor
+    tensorDict["maturityMinTensor"] = maturityMinTensor
+    tensorDict["lossWeighting"] = vegaRef
+    
+    tensorDictPenalization = {}
+    tensorDictPenalization["Maturity"] = MaturityPenalization
+    tensorDictPenalization["Moneyness"] = MoneynessPenalization
+    tensorDictPenalization["scaleTensorMoneyness"] = scaleTensor
+    tensorDictPenalization["scaleTensorMaturity"] = scaleTensorMaturity
+    tensorDictPenalization["moneynessMinTensor"] = moneynessMinTensor
+    tensorDictPenalization["maturityMinTensor"] = maturityMinTensor
+    tensorDictPenalization["lossWeighting"] = vegaRefPenalization
+        
+    #Grid on which is applied Penalization [0, 2 * maxMaturity] and [minMoneyness, 2 * maxMoneyness]
     #k = np.linspace(scaler.data_min_[dataSet.columns.get_loc("logMoneyness")],
-    #                scaler.data_max_[dataSet.columns.get_loc("logMoneyness")],
+    #                2.0 * scaler.data_max_[dataSet.columns.get_loc("logMoneyness")],
     #                num=50)
-    #t = np.linspace(0, 4, num=100)
-
-    k = np.linspace((np.log(0.5) - minColFunction) / scF,
-                    (np.log(2.0) - minColFunction) / scF,
+    
+    #k = np.linspace((np.log(0.5) + minColFunction) / scF,
+    #                (np.log(2.0) + maxColFunction) / scF,
+    #                num=50)
+    
+    k = np.linspace(np.log(0.5) / scF,
+                    (np.log(2.0) + maxColFunction - minColFunction) / scF,
                     num=50)
+    
+    if useLogMaturity :
+        #t = np.linspace(minColFunctionMat, np.log(2) + maxColFunctionMat, num=100)
+        t = np.linspace(0, (np.log(2) + maxColFunctionMat - minColFunctionMat) / scFMat, num=100)
+    else :
+        #t = np.linspace(0, 4, num=100)
+        #t = np.linspace(minColFunctionMat, 2 * maxColFunctionMat, num=100)
+        t = np.linspace(0, (2 * maxColFunctionMat - minColFunctionMat) / scFMat, num=100)
+    
     penalizationGrid = np.meshgrid(k, t)
     tPenalization = np.ravel(penalizationGrid[1])
     kPenalization = np.ravel(penalizationGrid[0])
@@ -1447,46 +1522,32 @@ def create_eval_model_gatheral(NNFactory,
     if activateRegularization:  # Add pseudo local volatility regularisation
         vol_pred_tensor, TensorList, penalizationList, formattingFunction = addDupireRegularisation(
             *NNFactory(hidden_nodes,
-                       Moneyness,
-                       Maturity,
-                       scaleTensor,
-                       moneynessMinTensor,
-                       vegaRef,
+                       tensorDict,
                        hyperparameters),
             vegaRef,
             hyperparameters)
         vol_pred_tensor1, TensorList1, penalizationList1, formattingFunction1 = addDupireRegularisation(
             *NNFactory(hidden_nodes,
-                       MoneynessPenalization,
-                       MaturityPenalization,
-                       scaleTensor,
-                       moneynessMinTensor,
-                       vegaRefPenalization,
+                       tensorDictPenalization,
                        hyperparameters),
             vegaRefPenalization,
             hyperparameters)
     else:
         vol_pred_tensor, TensorList, penalizationList, formattingFunction = NNFactory(hidden_nodes,
-                                                                                      Moneyness,
-                                                                                      Maturity,
-                                                                                      scaleTensor,
-                                                                                      moneynessMinTensor,
-                                                                                      vegaRef,
+                                                                                      tensorDict,
                                                                                       hyperparameters)
         vol_pred_tensor1, TensorList1, penalizationList1, formattingFunction1 = NNFactory(hidden_nodes,
-                                                                                          MoneynessPenalization,
-                                                                                          MaturityPenalization,
-                                                                                          scaleTensor,
-                                                                                          moneynessMinTensor,
-                                                                                          vegaRefPenalization,
+                                                                                          tensorDictPenalization,
                                                                                           hyperparameters)
 
     vol_pred_tensor_sc = vol_pred_tensor
-    TensorList[0] = tf.square(vol_pred_tensor_sc) * Maturity
+    unscaledMaturityTensor = (Maturity * scaleTensorMaturity + maturityMinTensor)
+    maturityOriginal = tf.exp(unscaledMaturityTensor) if useLogMaturity else  unscaledMaturityTensor
+    TensorList[0] = tf.square(vol_pred_tensor_sc) * maturityOriginal
 
     # Define a loss function
-    pointwiseError = tf.reduce_mean(tf.abs(vol_pred_tensor_sc - y) / vegaRef)
-    errors = tf.add_n([pointwiseError] + penalizationList1)
+    pointwiseError = tf.sqrt(tf.reduce_mean(tf.square(vol_pred_tensor_sc - y) / vegaRef))
+    errors = tf.add_n([pointwiseError] + penalizationList1) #tf.add_n([pointwiseError] + penalizationList)
     loss = tf.log(tf.reduce_mean(errors))
 
     # Define a train operation to minimize the loss
@@ -1502,20 +1563,18 @@ def create_eval_model_gatheral(NNFactory,
     sess.run(init)
     n = dataSet.shape[0]
     scaledInput = dataSetConstruction.transformCustomMinMax(dataSet, scaler)
-
-    maturity = dataSet["Maturity"].values.reshape(n, 1)
     loss_serie = []
 
     def createFeedDict(batch):
         batchSize = batch.shape[0]
         feedDict = {Moneyness: scaledInput["logMoneyness"].values.reshape(batchSize, 1),#scaledInput["logMoneyness"].loc[batch.index].drop_duplicates().values.reshape(batchSize, 1),
-                    Maturity: batch["Maturity"].values.reshape(batchSize, 1),
+                    Maturity: scaledInput["logMaturity"].values.reshape(batchSize, 1) if useLogMaturity else scaledInput["Maturity"].values.reshape(batchSize, 1),
                     y: batch["ImpliedVol"].values.reshape(batchSize, 1),
-                    MoneynessPenalization : np.expand_dims(kPenalization,1),
-                    MaturityPenalization : np.expand_dims(tPenalization,1),
+                    MoneynessPenalization : np.expand_dims(kPenalization, 1),
+                    MaturityPenalization : np.expand_dims(tPenalization, 1),
                     learningRateTensor: learningRate,
                     vegaRef: np.ones_like(batch["logMoneyness"].values.reshape(batchSize, 1)),
-                    vegaRefPenalization : np.ones_like(np.expand_dims(kPenalization,1))}
+                    vegaRefPenalization : np.ones_like(np.expand_dims(kPenalization, 1))}
         return feedDict
 
     epochFeedDict = createFeedDict(dataSet)
@@ -1552,7 +1611,20 @@ def evalVolLocaleGatheral(NNFactory,
                           S0,
                           modelName="bestModel"):
     hidden_nodes = hyperparameters["nbUnits"]
+    nbEpoch = hyperparameters["maxEpoch"]
+    fixedLearningRate = (None if (("FixedLearningRate" in hyperparameters) and hyperparameters["FixedLearningRate"]) else hyperparameters["LearningRateStart"])
+    patience = hyperparameters["Patience"]
+    useLogMaturity = (hyperparameters["UseLogMaturity"] if ("UseLogMaturity" in hyperparameters) else False)
 
+    # Go through num_iters iterations (ignoring mini-batching)
+    activateLearningDecrease = (~ hyperparameters["FixedLearningRate"])
+    learningRate = hyperparameters["LearningRateStart"]
+    learningRateEpoch = 0
+    finalLearningRate = hyperparameters["FinalLearningRate"]
+
+    batch_size = hyperparameters["batchSize"]
+
+    start = time.time()
     # Reset the graph
     resetTensorflow()
 
@@ -1571,22 +1643,60 @@ def evalVolLocaleGatheral(NNFactory,
     colMoneynessIndex = dataSet.columns.get_loc("logMoneyness")
     maxColFunction = scaler.data_max_[colMoneynessIndex]
     minColFunction = scaler.data_min_[colMoneynessIndex]
-    scF = (maxColFunction - minColFunction)
-    scaleTensor = tf.constant(scF, dtype=tf.float32)
+    scF = (maxColFunction - minColFunction) #0
+    scaleTensor = tf.constant(scF, dtype=tf.float32) #1
     moneynessMinTensor = tf.constant(minColFunction, dtype=tf.float32)
-
-    #Grid on which is applied Penalization
-    t = np.linspace(scaler.data_min_[dataSet.columns.get_loc("Maturity")],
-                    4 * scaler.data_max_[dataSet.columns.get_loc("Maturity")],
-                    num=100)
+    
+    
+    # Get scaling for maturity
+    colMaturityIndex = dataSet.columns.get_loc("logMaturity") if useLogMaturity else dataSet.columns.get_loc("Maturity")
+    maxColFunctionMat = scaler.data_max_[colMaturityIndex]
+    minColFunctionMat = scaler.data_min_[colMaturityIndex] #0
+    scFMat = (maxColFunctionMat - minColFunctionMat) #1
+    scaleTensorMaturity = tf.constant(scFMat, dtype=tf.float32)
+    maturityMinTensor = tf.constant(minColFunctionMat, dtype=tf.float32)
+    
+    tensorDict = {}
+    tensorDict["Maturity"] = Maturity
+    tensorDict["Moneyness"] = Moneyness
+    tensorDict["scaleTensorMoneyness"] = scaleTensor
+    tensorDict["scaleTensorMaturity"] = scaleTensorMaturity
+    tensorDict["moneynessMinTensor"] = moneynessMinTensor
+    tensorDict["maturityMinTensor"] = maturityMinTensor
+    tensorDict["lossWeighting"] = vegaRef
+    
+    tensorDictPenalization = {}
+    tensorDictPenalization["Maturity"] = MaturityPenalization
+    tensorDictPenalization["Moneyness"] = MoneynessPenalization
+    tensorDictPenalization["scaleTensorMoneyness"] = scaleTensor
+    tensorDictPenalization["scaleTensorMaturity"] = scaleTensorMaturity
+    tensorDictPenalization["moneynessMinTensor"] = moneynessMinTensor
+    tensorDictPenalization["maturityMinTensor"] = maturityMinTensor
+    tensorDictPenalization["lossWeighting"] = vegaRefPenalization
+        
+    #Grid on which is applied Penalization [0, 2 * maxMaturity] and [minMoneyness, 2 * maxMoneyness]
     #k = np.linspace(scaler.data_min_[dataSet.columns.get_loc("logMoneyness")],
-    #                scaler.data_max_[dataSet.columns.get_loc("logMoneyness")],
+    #                2.0 * scaler.data_max_[dataSet.columns.get_loc("logMoneyness")],
     #                num=50)
-    #t = np.linspace(0, 4, num=100)
-
-    k = np.linspace((np.log(0.5) - minColFunction) / scF,
-                    (np.log(2.0) - minColFunction) / scF,
+    
+    #k = np.linspace((np.log(0.5) + minColFunction) / scF,
+    #                (np.log(2.0) + maxColFunction) / scF,
+    #                num=50)
+    
+    k = np.linspace(np.log(0.5) / scF,
+                    (np.log(2.0) + maxColFunction - minColFunction) / scF,
                     num=50)
+    
+    if useLogMaturity :
+        #t = np.linspace(minColFunctionMat, np.log(2) + maxColFunctionMat, num=100)
+        t = np.linspace((np.log(0.00001) - minColFunctionMat) / scFMat, 
+                        (np.log(2) + maxColFunctionMat - minColFunctionMat) / scFMat, 
+                        num=100)
+    else :
+        #t = np.linspace(0, 4, num=100)
+        #t = np.linspace(minColFunctionMat, 2 * maxColFunctionMat, num=100)
+        t = np.linspace(0, (2 * maxColFunctionMat - minColFunctionMat) / scFMat, num=100)
+    
     penalizationGrid = np.meshgrid(k, t)
     tPenalization = np.ravel(penalizationGrid[1])
     kPenalization = np.ravel(penalizationGrid[0])
@@ -1596,25 +1706,19 @@ def evalVolLocaleGatheral(NNFactory,
     penalizationList = None
     formattingFunction = None
     vol_pred_tensor, TensorList, penalizationList, formattingFunction = NNFactory(hidden_nodes,
-                                                                                  Moneyness,
-                                                                                  Maturity,
-                                                                                  scaleTensor,
-                                                                                  moneynessMinTensor,
-                                                                                  vegaRef,
+                                                                                  tensorDict,
                                                                                   hyperparameters)
     vol_pred_tensor1, TensorList1, penalizationList1, formattingFunction1 = NNFactory(hidden_nodes,
-                                                                                      MoneynessPenalization,
-                                                                                      MaturityPenalization,
-                                                                                      scaleTensor,
-                                                                                      moneynessMinTensor,
-                                                                                      vegaRefPenalization,
+                                                                                      tensorDictPenalization,
                                                                                       hyperparameters)
 
     vol_pred_tensor_sc = vol_pred_tensor
-    TensorList[0] = tf.square(vol_pred_tensor_sc) * Maturity
+    unscaledMaturityTensor = (Maturity * scaleTensorMaturity + maturityMinTensor)
+    maturityOriginal = tf.exp(unscaledMaturityTensor) if useLogMaturity else  unscaledMaturityTensor
+    TensorList[0] = tf.square(vol_pred_tensor_sc) * maturityOriginal
 
     # Define a loss function
-    pointwiseError = tf.reduce_mean(tf.abs(vol_pred_tensor_sc - y) / vegaRef)
+    pointwiseError =tf.sqrt(tf.reduce_mean(tf.square(vol_pred_tensor_sc - y) / vegaRef))
     errors = tf.add_n([pointwiseError] + penalizationList1)
     loss = tf.log(tf.reduce_mean(errors))
 
@@ -1641,8 +1745,9 @@ def evalVolLocaleGatheral(NNFactory,
                     vegaRef: np.ones((batchSize, 1)),
                     vegaRefPenalization : np.ones_like(np.expand_dims(kPenalization, 1))}
         return feedDict
-
-    epochFeedDict = createFeedDict(scaledMoneyness, maturities)
+    
+    scaledMaturities = ((np.log(maturities) if useLogMaturity else maturities) - minColFunctionMat) / scFMat
+    epochFeedDict = createFeedDict(scaledMoneyness, scaledMaturities)
 
     saver.restore(sess, modelName)
 
@@ -1689,11 +1794,17 @@ def dupireFormulaGatheral(HessianMoneyness,
 
 #Dupire formula with derivative obtained from native tensorflow algorithmic differentiation
 def rawDupireFormulaGatheral(totalVarianceTensor,
-                             scaledMoneynessTensor,
-                             maturityTensor,
-                             scaleTensor,
-                             moneynessMinTensor,
-                             IsTraining=True):
+                             tensorDict,
+                             IsTraining=True,
+                             useLogMaturity = False):
+  scaledMaturityTensor = tensorDict["Maturity"] 
+  scaledMoneynessTensor = tensorDict["Moneyness"]
+  scaleTensor = tensorDict["scaleTensorMoneyness"] 
+  scaleTensorMaturity = tensorDict["scaleTensorMaturity"] 
+  moneynessMinTensor = tensorDict["moneynessMinTensor"] 
+  maturityMinTensor = tensorDict["maturityMinTensor"]
+  vegaRef = tensorDict["lossWeighting"]
+    
   batchSize = tf.shape(scaledMoneynessTensor)[0]
   twoConstant = tf.constant(2.0)
   oneConstant = tf.constant(1.0)
@@ -1701,6 +1812,7 @@ def rawDupireFormulaGatheral(totalVarianceTensor,
   halfConstant = tf.constant(0.5)
 
   moneyness = scaledMoneynessTensor * scaleTensor + moneynessMinTensor
+  maturity = scaledMaturityTensor * scaleTensorMaturity + maturityMinTensor
 
   dMoneyness = tf.reshape(tf.gradients(totalVarianceTensor, scaledMoneynessTensor, name="dK")[0], shape=[batchSize,-1]) / scaleTensor
   dMoneynessFactor = (moneyness/totalVarianceTensor)
@@ -1711,8 +1823,11 @@ def rawDupireFormulaGatheral(totalVarianceTensor,
 
 
   gatheralDenominator = oneConstant - dMoneynessFactor * (dMoneyness) + dMoneynessSquaredFactor * tf.square(dMoneyness) + gMoneynessFactor *  gMoneyness
-
-  dT = tf.reshape(tf.gradients(totalVarianceTensor,maturityTensor,name="dT")[0], shape=[batchSize,-1])
+  
+  if useLogMaturity :
+    dT = tf.reshape(tf.gradients(totalVarianceTensor,scaledMaturityTensor,name="dT")[0], shape=[batchSize,-1]) / scaleTensorMaturity * tf.exp(maturity)
+  else :
+    dT = tf.reshape(tf.gradients(totalVarianceTensor,scaledMaturityTensor,name="dT")[0], shape=[batchSize,-1]) / scaleTensorMaturity
 
   #Initial weights of neural network can be random which lead to negative dupireVar
   gatheralVar = dT / gatheralDenominator
@@ -1732,14 +1847,20 @@ def arbitragePenalties(dT, gatheralDenominator, vegaRef, hyperparameters):
 
 
 def NNArchitectureVanillaSoftGatheralAckerer(n_units,
-                                             scaledMoneynessTensor,
-                                             maturityTensor,
-                                             scaleTensor,
-                                             moneynessMinTensor,
-                                             vegaRef,
+                                             tensorDict,
                                              hyperparameters,
                                              IsTraining=True):
-    inputLayer = tf.concat([scaledMoneynessTensor, maturityTensor], axis=-1)
+    scaledMaturityTensor = tensorDict["Maturity"] 
+    scaledMoneynessTensor = tensorDict["Moneyness"]
+    scaleTensor = tensorDict["scaleTensorMoneyness"] 
+    scaleTensorMaturity = tensorDict["scaleTensorMaturity"] 
+    moneynessMinTensor = tensorDict["moneynessMinTensor"] 
+    maturityMinTensor = tensorDict["maturityMinTensor"]
+    vegaRef = tensorDict["lossWeighting"]
+    
+    useLogMaturity = (hyperparameters["UseLogMaturity"] if ("UseLogMaturity" in hyperparameters) else False)
+    
+    inputLayer = tf.concat([scaledMoneynessTensor, scaledMaturityTensor], axis=-1)
     # First layer
     hidden1 = unconstrainedLayer(n_units=n_units,
                                  tensor=inputLayer,
@@ -1762,12 +1883,11 @@ def NNArchitectureVanillaSoftGatheralAckerer(n_units,
                              name="Output",
                              activation=None)
     # Local volatility
-    gatheralVol, theta, hK, gatheralVar, gatheralDenominator = rawDupireFormulaGatheral(tf.square(out) * maturityTensor,
-                                                                                        scaledMoneynessTensor,
-                                                                                        maturityTensor,
-                                                                                        scaleTensor,
-                                                                                        moneynessMinTensor,
-                                                                                        IsTraining=IsTraining)
+    unscaledMaturity = (scaledMaturityTensor * scaleTensorMaturity + maturityMinTensor)
+    gatheralVol, theta, hK, gatheralVar, gatheralDenominator = rawDupireFormulaGatheral(tf.square(out) * (tf.exp(unscaledMaturity) if useLogMaturity else unscaledMaturity),
+                                                                                        tensorDict,
+                                                                                        IsTraining=IsTraining, 
+                                                                                        useLogMaturity = useLogMaturity)
     # Soft constraints for no arbitrage
     penalties = arbitragePenalties(theta, gatheralDenominator, vegaRef, hyperparameters)
     grad_penalty = penalties[0]
@@ -1777,14 +1897,21 @@ def NNArchitectureVanillaSoftGatheralAckerer(n_units,
 
 
 def NNArchitectureVanillaSoftGatheral(n_units,
-                                      scaledMoneynessTensor,
-                                      maturityTensor,
-                                      scaleTensor,
-                                      moneynessMinTensor,
-                                      vegaRef,
+                                      tensorDict,
                                       hyperparameters,
                                       IsTraining=True):
-    inputLayer = tf.concat([scaledMoneynessTensor, maturityTensor], axis=-1)
+    scaledMaturityTensor = tensorDict["Maturity"] 
+    scaledMoneynessTensor = tensorDict["Moneyness"]
+    scaleTensor = tensorDict["scaleTensorMoneyness"] 
+    scaleTensorMaturity = tensorDict["scaleTensorMaturity"] 
+    moneynessMinTensor = tensorDict["moneynessMinTensor"] 
+    maturityMinTensor = tensorDict["maturityMinTensor"]
+    vegaRef = tensorDict["lossWeighting"]
+    
+    useLogMaturity = (hyperparameters["UseLogMaturity"] if ("UseLogMaturity" in hyperparameters) else False)
+    inputLayer = tf.concat([scaledMoneynessTensor, scaledMaturityTensor], axis=-1)
+    #inputLayer = tf.concat([scaledMoneynessTensor, tf.log(scaledMaturityTensor)], axis=-1)
+    
     # First layer
     hidden1 = unconstrainedLayer(n_units=n_units,
                                  tensor=inputLayer,
@@ -1802,12 +1929,11 @@ def NNArchitectureVanillaSoftGatheral(n_units,
                              name="Output",
                              activation=None)
     # Local volatility
-    gatheralVol, theta, hK, gatheralVar, gatheralDenominator = rawDupireFormulaGatheral(tf.square(out) * maturityTensor,
-                                                                                        scaledMoneynessTensor,
-                                                                                        maturityTensor,
-                                                                                        scaleTensor,
-                                                                                        moneynessMinTensor,
-                                                                                        IsTraining=IsTraining)
+    unscaledMaturity = (scaledMaturityTensor * scaleTensorMaturity + maturityMinTensor)
+    gatheralVol, theta, hK, gatheralVar, gatheralDenominator = rawDupireFormulaGatheral(tf.square(out) * (tf.exp(unscaledMaturity) if useLogMaturity else unscaledMaturity),
+                                                                                        tensorDict,
+                                                                                        IsTraining=IsTraining, 
+                                                                                        useLogMaturity = useLogMaturity)
     # Soft constraints for no arbitrage
     penalties = arbitragePenalties(theta, gatheralDenominator, vegaRef, hyperparameters)
     grad_penalty = penalties[0]

@@ -307,3 +307,59 @@ def checkCallPutParity(rawData, S0, bootstrap):
     else:
         print("Call put parity is respected")
     return
+
+def minMaxScaling(dataSet, dataSetTest, S0):
+    transformCustom = transformCustomMinMax
+    inverseTransform = inverseTransformMinMax
+    inverseTransformColumn = inverseTransformColumnMinMax
+    inverseTransformColumnGreeks = inverseTransformColumnGreeksMinMax
+    
+    
+    scaler = skl.preprocessing.MinMaxScaler(feature_range=(0, 1))
+    scaler.fit(dataSet)
+    scaledDataSet = transformCustom(dataSet, scaler)
+    scaledDataSetTest = transformCustom(dataSetTest, scaler)
+
+    #Search strike for ATM option
+    midS0 = dataSet[dataSet.index.get_level_values("Strike") >= S0].index.get_level_values("Strike").min()
+
+    KMin = 0
+    KMax = 2.0 * S0
+    
+    return KMin, KMax, midS0, scaler, scaledDataSet, scaledDataSetTest
+
+def noScaling(dataSet, dataSetTest):
+    transformCustom = transformCustomId
+    inverseTransform = inverseTransformId
+    inverseTransformColumn = inverseTransformColumnId
+    inverseTransformColumnGreeks = inverseTransformColumnGreeksId
+
+
+    scaler = skl.preprocessing.MinMaxScaler(feature_range=(0, 1))
+    scaler.fit(dataSet)
+    scaledDataSet = transformCustom(dataSet, scaler)
+    scaledDataSetTest = transformCustom(dataSetTest, scaler)
+
+    #Search strike for ATM option
+    midS0 = dataSet[dataSet.index.get_level_values("Strike") >= S0].index.get_level_values("Strike").min()
+
+    KMin = 0
+    KMax = 2.0 * S0
+    
+    return KMin, KMax, midS0, scaler, scaledDataSet, scaledDataSetTest
+
+def generateOuterRectangleGrid(dataSet, dataSetTest, bootstrap, S0):
+    strikeLow = min(dataSet["Strike"].min(),dataSetTest["Strike"].min()) #dataSet["Strike"].min()
+    strikeUp = max(dataSet["Strike"].max(),dataSetTest["Strike"].max()) #dataSet["Strike"].max()
+    strikeGrid = np.linspace(strikeLow, strikeUp, 100)
+    matLow = min(dataSet["Maturity"].min(),dataSetTest["Maturity"].min()) #dataSet["Maturity"].min()
+    matUp = max(dataSet["Maturity"].max(),dataSetTest["Maturity"].max()) #dataSetTest["Maturity"].max()
+    matGrid = np.linspace(matLow, matUp, 100)
+    volLocaleGrid = np.meshgrid(strikeGrid, matGrid)
+    volLocaleGridDf = pd.DataFrame(np.vstack((np.ravel(volLocaleGrid[0]), np.ravel(volLocaleGrid[1]))).T, 
+                                   columns = ["Strike", "Maturity"]).set_index(["Strike","Maturity"],drop=False)
+    volLocaleGridDf["ChangedStrike"] = bootstrap.changeOfVariable(volLocaleGridDf["Strike"], volLocaleGridDf["Maturity"])[0]
+    volLocaleGridDf["logMoneyness"] = np.log(volLocaleGridDf["ChangedStrike"] / S0)
+    volLocaleGridDf["OptionType"] = np.ones_like(volLocaleGridDf["logMoneyness"])
+    return volLocaleGridDf
+    

@@ -8,6 +8,7 @@ from io import StringIO
 import bootstrapping
 import BS
 import dataSetConstruction
+import plotTools
 
 def rmse(a,b):
     return np.sqrt(np.nanmean(np.square(a-b)))
@@ -229,7 +230,8 @@ def selectTrainingSet(rawData):
         if maturityDf[1].shape[0] > 1 :
             nbPointsToDraw = max(int(maturityDf[1].shape[0] * sampledPercentage), 2)
             selectedTrainingRow.append(maturityDf[1].sample(n=nbPointsToDraw, axis=0))
-        elif (maturityDf[0] == filteredData["Maturity"].min()) or (maturityDf[0] == filteredData["Maturity"].max()): #Keep all data
+        elif (maturityDf[0] == filteredData.index.get_level_values("Maturity").min()) or (maturityDf[0] == filteredData.index.get_level_values("Maturity").max()): #Keep all data
+            print("7", maturityDf[0])
             selectedTrainingRow.append(smile[1])
 
     #trainingSet = filteredData.sample(n=nbTrainingObs, axis=0)
@@ -275,7 +277,7 @@ def loadDataFromCSV(pathFolder, datFile):
                                                        localVolatility,
                                                        priceDf=formattedTrainingData.reset_index())
 
-    return trainingDataSet, testingDataSet, bootstrap, S0
+    return trainingDataSet[trainingDataSet["OptionType"]==-1], testingDataSet[testingDataSet["OptionType"]==-1], bootstrap, S0
 
 def loadDataFromDat(pathFolder, datFileName):
     localVolatilityNative = parseModelParamDatFile(pathFolder + datFileName + ".dat.modelparam.dat")
@@ -312,7 +314,15 @@ def loadDataFromDat(pathFolder, datFileName):
                                                        localVolatility,
                                                        priceDf=formattedTrainingData.reset_index())
 
-    return trainingDataSet, testingDataSet, bootstrap, S0
+    return trainingDataSet[trainingDataSet["OptionType"]==-1], testingDataSet[testingDataSet["OptionType"]==-1], bootstrap, S0
+
+
+
+def roundMultiIndex(formerIndex):
+  roundedValues = np.round(formerIndex.get_level_values("Maturity"), decimals=4)
+  newIndex = pd.MultiIndex.from_tuples( list(zip(formerIndex.get_level_values("Strike"), roundedValues)) )
+  return newIndex[~newIndex.duplicated()]
+
 
 def loadCBOTData(pathFolder, fileName, asOfDate):
     sheetName = "quotedata"
@@ -334,10 +344,11 @@ def loadCBOTData(pathFolder, fileName, asOfDate):
 
     aDf["Converted Expiration Date"] = aDf["Expiration Date"].map(lambda x: formatDate(x))
 
-    aDf = aDf[(aDf["Vol"] > 0.1) & (aDf["Last Sale"] > 0.01) & (aDf["Last Sale.1"] > 0.01) & (aDf["IV.1"] > 0.001) & (aDf["IV"] > 0.001)]
+    aDf = aDf[(aDf["IV.1"] < 1.0) & (aDf["IV"] < 1.0) & (aDf["IV.1"] > 0.001) & (aDf["IV"] > 0.001)]
     closeDate = aDf["Converted Expiration Date"]
     strike = aDf["Strike"].round(decimals=3)
     maturity = (aDf["Converted Expiration Date"] - pd.Timestamp(asOfDate)).map(lambda x: x.days / 365.25).round(decimals=3)
+    logMaturity = np.log(maturity)
 
     closeCall = (aDf["Bid"] + aDf["Ask"]) / 2  # aDf["Last Sale"]
     bidCall = aDf["Bid"]
@@ -354,37 +365,76 @@ def loadCBOTData(pathFolder, fileName, asOfDate):
     gammaPut = aDf["Gamma.1"]
 
     callDf = pd.DataFrame(np.vstack(
-        [strike, maturity, closeCall, bidCall, askCall, impliedVolCall, deltaCall, gammaCall,
+        [strike, maturity, logMaturity, closeCall, bidCall, askCall, impliedVolCall, deltaCall, gammaCall,
          np.ones_like(deltaCall, dtype=np.int32)]).T,
-                          columns=["Strike", "Maturity", "Price", "Bid", "Ask", "ImpliedVol", "Delta", "Gamma",
+                          columns=["Strike", "Maturity", "logMaturity", "Price", "Bid", "Ask", "ImpliedVol", "Delta", "Gamma",
                                    "OptionType"]).set_index(["Strike", "Maturity"])
-    PutDf = pd.DataFrame(np.vstack([strike, maturity, closePut, bidPut, askPut, impliedVolPut, deltaPut, gammaPut,
+    PutDf = pd.DataFrame(np.vstack([strike, maturity, logMaturity, closePut, bidPut, askPut, impliedVolPut, deltaPut, gammaPut,
                                     2 * np.ones_like(deltaCall, dtype=np.int32)]).T,
-                         columns=["Strike", "Maturity", "Price", "Bid", "Ask", "ImpliedVol", "Delta", "Gamma",
+                         columns=["Strike", "Maturity", "logMaturity", "Price", "Bid", "Ask", "ImpliedVol", "Delta", "Gamma",
                                   "OptionType"]).set_index(["Strike", "Maturity"])
 
-    bootstrap = bootstrapping.bootstrappingAveraged(pathFolder + "yieldCurve.dat",
-                                                    S0,
-                                                    strike,
-                                                    asOfDate,
-                                                    closeCall,
-                                                    closePut,
-                                                    maturity)
+    #bootstrap = bootstrapping.bootstrappingLinRegShortRate(pathFolder + "yieldCurve.dat",
+    #                                                       S0,
+    #                                                       strike,
+    #                                                       asOfDate,
+    #                                                       closeCall,
+    #                                                       closePut,
+    #                                                       maturity)
+                                                           
+    bootstrap = bootstrapping.bootstrappingImplied(pathFolder + "yieldCurve.dat",
+                                                   S0,
+                                                   strike,
+                                                   asOfDate,
+                                                   closeCall,
+                                                   closePut,
+                                                   maturity,
+                                                   impliedVolCall,
+                                                   impliedVolPut)
+    
+    #bootstrap = bootstrapping.bootstrappingAveraged(pathFolder + "yieldCurve.dat",
+    #                                                S0,
+    #                                                strike,
+    #                                                asOfDate,
+    #                                                closeCall,
+    #                                                closePut,
+    #                                                maturity)
 
     rawData = pd.concat([callDf, PutDf])
     rawData = rawData[rawData["OptionType"]==2]
 
-    #impvol = BS.vectorizedImpliedVolatilityCalibration(S0,
-    #                                                   bootstrap,
-    #                                                   rawData.index.get_level_values("Maturity"),
-    #                                                   rawData.index.get_level_values("Strike"),
-    #                                                   rawData["OptionType"],
-    #                                                   rawData["Price"])
-
-    #rawData["ImpliedVol"] =  impvol
-
     filteredData = removeDataViolatingStaticArbitrage(rawData.reset_index())
     rawData = removeDuplicateIndex(filteredData.set_index(["Strike", "Maturity"]))
+    impvolAsk = BS.vectorizedImpliedVolatilityCalibration(S0,
+                                                          bootstrap,
+                                                          rawData.index.get_level_values("Maturity"),
+                                                          rawData.index.get_level_values("Strike"),
+                                                          np.where(rawData["OptionType"]==1, 
+                                                                   np.ones_like(rawData["OptionType"]), 
+                                                                   -np.ones_like(rawData["OptionType"])),
+                                                          rawData["Ask"])
+    impvolBid = BS.vectorizedImpliedVolatilityCalibration(S0,
+                                                          bootstrap,
+                                                          rawData.index.get_level_values("Maturity"),
+                                                          rawData.index.get_level_values("Strike"),
+                                                          np.where(rawData["OptionType"]==1, 
+                                                                   np.ones_like(rawData["OptionType"]), 
+                                                                   -np.ones_like(rawData["OptionType"])),
+                                                          rawData["Bid"])
+    impvolMid = BS.vectorizedImpliedVolatilityCalibration(S0,
+                                                          bootstrap,
+                                                          rawData.index.get_level_values("Maturity"),
+                                                          rawData.index.get_level_values("Strike"),
+                                                          np.where(rawData["OptionType"]==1, 
+                                                                   np.ones_like(rawData["OptionType"]), 
+                                                                   -np.ones_like(rawData["OptionType"])),
+                                                          rawData["Price"])
+    rawData["ImpVolAsk"] = impvolAsk
+    rawData["ImpVolBid"] = impvolBid
+    rawData["ImpVolCalibrated"] = impvolMid
+    rawData["locvol"] = np.ones_like(rawData["ImpliedVol"]) 
+    misCalibrationThreshold = 0.01
+    rawData = rawData[(rawData["ImpliedVol"] - rawData["ImpVolCalibrated"]).abs() <= misCalibrationThreshold]
     trainingSet, testingSet = selectTrainingSet(rawData)
 
 
@@ -400,9 +450,36 @@ def loadCBOTData(pathFolder, fileName, asOfDate):
                                                       localVolatilityRef = None,
                                                       priceDf=testingSet.reset_index(),
                                                       spotValue = False)
+    
+    #Work non-expired options
+    trainingDataSet2 = trainingDataSet.copy(deep=True)[trainingDataSet["Maturity"]>0]
+    testingDataSet2 = testingDataSet.copy(deep=True)[testingDataSet["Maturity"]>0]
+    trainingDataSet2["Bid"] = rawData["Bid"][roundMultiIndex(trainingDataSet2.index)]
+    testingDataSet2["Bid"] = rawData["Bid"][roundMultiIndex(testingDataSet2.index)]
+    
+    trainingDataSet2["Ask"] = rawData["Ask"][roundMultiIndex(trainingDataSet2.index)]
+    testingDataSet2["Ask"] = rawData["Ask"][roundMultiIndex(testingDataSet2.index)]
+    
+    trainingDataSet2["ImpVolAsk"] = rawData["ImpVolAsk"][roundMultiIndex(trainingDataSet2.index)]
+    testingDataSet2["ImpVolAsk"] = rawData["ImpVolAsk"][roundMultiIndex(testingDataSet2.index)]
+    
+    trainingDataSet2["ImpVolBid"] = rawData["ImpVolBid"][roundMultiIndex(trainingDataSet2.index)]
+    testingDataSet2["ImpVolBid"] = rawData["ImpVolBid"][roundMultiIndex(testingDataSet2.index)]
+    
+    trainingDataSet2["ImpVolCalibrated"] = rawData["ImpVolCalibrated"][roundMultiIndex(trainingDataSet2.index)]
+    testingDataSet2["ImpVolCalibrated"] = rawData["ImpVolCalibrated"][roundMultiIndex(testingDataSet2.index)]
+    
+    trainingDataSet2["locvol"] = rawData["locvol"][roundMultiIndex(trainingDataSet2.index)]
+    testingDataSet2["locvol"] = rawData["locvol"][roundMultiIndex(testingDataSet2.index)]
+    
+    trainingDataSet2["logMaturity"] = rawData["logMaturity"][roundMultiIndex(trainingDataSet2.index)]
+    testingDataSet2["logMaturity"] = rawData["logMaturity"][roundMultiIndex(testingDataSet2.index)]
 
 
-    return trainingDataSet, testingDataSet, bootstrap, S0
+    return trainingDataSet2, testingDataSet2, bootstrap, S0
+
+
+
 
 def loadESXData(pathFolder, fileName, asOfDate):
 
@@ -469,7 +546,8 @@ def loadESXData(pathFolder, fileName, asOfDate):
     return trainingDataSet, testingDataSet, bootstrap, S0
 
 
-def loadGPLocVol(pathFolder, GPKernel, bootstrap, S0):
+def loadGPLocVol(pathFolder, GPKernel, bootstrap, 
+                 S0, KMin, KMax, dataSet, dataSetTest):
     pathGP = pathFolder + ("local_vol_gaussian.csv" if GPKernel == "Gaussian" else "local_vol_matern_5_2.csv")
     print("Loading local volatility from : ", pathGP)
 
@@ -505,10 +583,34 @@ def loadGPLocVol(pathFolder, GPKernel, bootstrap, S0):
     locVolAreskyFormatted.insert(0, "OptionType",
                                  -np.ones_like(locVolAreskyFormatted["ChangedStrike"]))
 
-    return locVolAreskyFormatted[~locVolAreskyFormatted.index.duplicated(keep='first')]
+    filter1 =  locVolAreskyFormatted[~locVolAreskyFormatted.index.duplicated(keep='first')]
+    
+    volLocaleGridDf = dataSetConstruction.generateOuterRectangleGrid(dataSet, dataSetTest, bootstrap, S0)
+    
+    matUp = volLocaleGridDf.index.get_level_values("Maturity").max()
+    matLow = volLocaleGridDf.index.get_level_values("Maturity").min()
+    filterLocVol = filter1[(filter1["Maturity"] <= matUp) & (filter1["Maturity"] >= matLow)]
+
+    plotTools.plotSerie(filterLocVol["LocalVolatility"],
+                        Title = 'GP local volatility',
+                        az=30,
+                        yMin=KMin,
+                        yMax=KMax, 
+                        zAsPercent=True)
+    
+    logMin = np.log(KMin/S0), 
+    logMax = np.log(KMax/S0),
+    plotTools.plotSerie(plotTools.convertToLogMoneyness(filterLocVol["LocalVolatility"], S0),
+                        Title = 'GP local volatility',
+                        az=30,
+                        yMin=logMin,
+                        yMax=logMax, 
+                        zAsPercent=True)
+    return volLocaleGridDf, filterLocVol
 
 
-def loadGPLocVol(workingFolder, filename, bootstrap, S0):
+def loadGPLocVol(workingFolder, filename, bootstrap, 
+                 S0, KMin, KMax, dataSet, dataSetTest):
     #pathGP = pathFolder + ("local_vol_gaussian.csv" if GPKernel == "Gaussian" else "local_vol_matern_5_2.csv")
     pathGP = workingFolder + filename
     print("Loading local volatility from : ", pathGP)
@@ -547,7 +649,32 @@ def loadGPLocVol(workingFolder, filename, bootstrap, S0):
     locVolAreskyFormatted.insert(0, "OptionType",
                                  -np.ones_like(locVolAreskyFormatted["ChangedStrike"]))
 
-    return locVolAreskyFormatted[~locVolAreskyFormatted.index.duplicated(keep='first')]
+    filter1 =  locVolAreskyFormatted[~locVolAreskyFormatted.index.duplicated(keep='first')]
+    
+    volLocaleGridDf = dataSetConstruction.generateOuterRectangleGrid(dataSet, dataSetTest, bootstrap, S0)
+    
+    matUp = volLocaleGridDf.index.get_level_values("Maturity").max()
+    matLow = volLocaleGridDf.index.get_level_values("Maturity").min()
+    filterLocVol = filter1[(filter1["Maturity"] <= matUp) & (filter1["Maturity"] >= matLow)]
+
+    plotTools.plotSerie(filterLocVol["LocalVolatility"],
+                        Title = 'GP local volatility',
+                        az=30,
+                        yMin=KMin,
+                        yMax=KMax, 
+                        zAsPercent=True)
+    
+    logMin = np.log(KMin/S0), 
+    logMax = np.log(KMax/S0),
+    plotTools.plotSerie(plotTools.convertToLogMoneyness(filterLocVol["LocalVolatility"], S0),
+                        Title = 'GP local volatility',
+                        az=30,
+                        yMin=logMin,
+                        yMax=logMax, 
+                        zAsPercent=True)
+    return volLocaleGridDf, filterLocVol
+
+
 
 def removeDataViolatingStaticArbitrageStep(df):
     arbitrableRows = []
@@ -596,3 +723,50 @@ def loadFormattedData(pathFolder):
     bootstrap = bootstrapping.bootstrappingFromData(dfCurve)
 
     return trainingDataset, testingDataset, bootstrap, S0
+
+def loadGP(pathToData, fileName, dataSet, S0, bootstrap, threshold = None):
+    putGP = pd.read_excel(pathToData + fileName,
+                          header=0,
+                          sheet_name = "Sheet1")
+    putGP["Strike"] = np.exp(bootstrap.discountIntegral(putGP["T"])
+                             - bootstrap.dividendIntegral(putGP["T"])) * putGP["K"]
+    putGP["Maturity"] = putGP["T"]
+
+    putGP = putGP.set_index(["Strike","Maturity"], drop=False).sort_index()
+
+    putGP = pd.DataFrame(putGP.values, 
+                         columns = putGP.columns, 
+                         index = dataSet.sort_index().index)
+    putGP["StrikeGap"] = dataSet["Strike"] - putGP["Strike"]
+    putGP["Strike"] = dataSet["Strike"]
+    putGP["Maturity"] = dataSet["Maturity"]
+    putGP["OriginalPrice"] = putGP["GP_Put_price"] * np.exp(- bootstrap.dividendIntegral(putGP["T"]))
+    
+    ImpVolPut = BS.vectorizedImpliedVolatilityCalibration(S0, bootstrap, 
+                                                          putGP["T"], 
+                                                          putGP["Strike"], 
+                                                          -1 * np.ones_like(putGP["Strike"]), 
+                                                          putGP["GP_Put_price"], 
+                                                          removeNaN= False)
+    
+    ImpVolPut = pd.Series(ImpVolPut, 
+                          index = putGP.set_index(["Strike","Maturity"], drop=False).index).sort_index()
+    
+    plotTools.predictionDiagnosis(putGP["GP_Put_price"], 
+                                  dataSet['Price'],
+                                  " Implied vol ", 
+                                  yMin=2400,
+                                  yMax=3600, 
+                                  az = 30,
+                                  threshold=threshold)
+    
+    keptPrices = ImpVolPut.dropna().index
+    plotTools.predictionDiagnosis(selectIndex(ImpVolPut, keptPrices), 
+                                  selectIndex(dataSet["ImpliedVol"], keptPrices), 
+                                  " Implied vol ", 
+                                  yMin=2400,
+                                  yMax=3600, 
+                                  az = 180)
+    
+    return putGP, ImpVolPut
+

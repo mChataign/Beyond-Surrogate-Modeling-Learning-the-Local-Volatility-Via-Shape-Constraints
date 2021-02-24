@@ -211,3 +211,74 @@ def vectorizedImpliedVolatilityCalibration(S0,
     impVol = dataSet.apply(calibFunction, axis=1)
 
     return np.ravel(impVol)
+    
+    
+def bissectionMethodDividend(S0, 
+                             r, q0, 
+                             implied_vol, 
+                             maturity, 
+                             Strike, 
+                             refPrice, 
+                             epsilon, 
+                             optionType, 
+                             removeNaN = False):
+    calibratedQ = q0
+    #Call black-scholes price function for initial value
+    priceBS = bs_price(optionType , S0, Strike, r, maturity, implied_vol, calibratedQ)
+    qSup = 100
+    qInf = -100
+    lossSerie = []
+    
+    q = qInf if optionType == 1 else qSup
+    priceMax = bs_price(optionType ,S0, Strike, r, maturity, implied_vol, q)
+    if priceMax < refPrice:
+        return priceMax, (np.NaN if removeNaN else q), pd.Series(lossSerie)
+    
+    q = qSup if optionType == 1 else qInf
+    priceMin = bs_price(optionType ,S0, Strike, r, maturity, implied_vol, q)
+    if priceMin > refPrice:
+        return priceMin, (np.NaN if removeNaN else q), pd.Series(lossSerie) 
+
+    #Stop the optimization when the error is less than epsilon
+    while(abs(priceBS - refPrice) > epsilon):
+        #Update the upper bound or the lower bound 
+        #by comparing calibrated price and the target price 
+        if ((priceBS < refPrice) and (optionType==1)) or ((priceBS > refPrice) and (optionType==-1)) : 
+            qSup = calibratedQ
+        else :
+            qInf = calibratedQ
+        #Update calibratedSigma
+        calibratedQ = (qInf + qSup) / 2
+        #Update calibrated price
+        priceBS = bs_price(optionType , S0, Strike, r, maturity, implied_vol, calibratedQ)
+        #Record the calibration error for this step
+        lossSerie.append(abs(priceBS - refPrice)) 
+        
+    return priceBS, calibratedQ, pd.Series(lossSerie)
+
+
+def vectorizedImpliedDividendCalibration(S0,
+                                         bootstrap,
+                                         maturity,
+                                         strike,
+                                         optionType,
+                                         marketPrice,
+                                         impliedVol,
+                                         removeNaN = False):
+    epsilon = 1e-9
+    discountRate = bootstrap.discountIntegral(maturity) / maturity
+    #dividendRate = bootstrap.dividendIntegral(maturity) / maturity
+    data = np.vstack([np.array(maturity),  np.array(strike), np.array(optionType),
+                      np.array(marketPrice), np.array(discountRate), impliedVol]).T
+    dataSet = pd.DataFrame(data, columns = ["Maturity", "Strike", "OptionType", "Price", "r", "ImpliedVol"])
+
+    calibFunction = lambda x : bissectionMethodDividend(S0, x["r"], 0, x["ImpliedVol"],
+                                                        x["Maturity"],
+                                                        x["Strike"],
+                                                        x["Price"],
+                                                        epsilon,
+                                                        x["OptionType"],
+                                                        removeNaN = removeNaN)[1]
+    impVol = dataSet.apply(calibFunction, axis=1) * np.array(maturity)
+
+    return np.ravel(impVol)
