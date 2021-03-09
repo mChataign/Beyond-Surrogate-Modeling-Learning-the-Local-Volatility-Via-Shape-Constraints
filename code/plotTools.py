@@ -10,6 +10,7 @@ import BS
 import bootstrapping
 import math
 
+impliedVolColumn = BS.impliedVolColumn
 
 ######################################################################### Training loss
 
@@ -521,14 +522,14 @@ def plotImpliedVolConcrete(priceSurface,
 def plotEachStrike(df):
     for strike in df.rename({"Strike" : "StrikeColumn"}, axis=1).groupby("StrikeColumn"):
         if True : # strike[0] == df["logMoneyness"].min() :
-            impliedTotVariance = np.square(strike[1]["ImpliedVol"]) * strike[1]["Maturity"]
+            impliedTotVariance = np.square(strike[1][impliedVolColumn]) * strike[1]["Maturity"]
             plt.plot(strike[1]["Maturity"].values, impliedTotVariance.values, label = str(strike[0]))
     plt.legend()
     return
 
 def plotEachSmile(df):
     for smile in df.rename({"Maturity" : "MaturityColumn"}, axis=1).groupby("MaturityColumn"):
-        impliedTotVariance = np.square(smile[1]["ImpliedVol"]) * smile[1]["MaturityColumn"]
+        impliedTotVariance = np.square(smile[1][impliedVolColumn]) * smile[1]["MaturityColumn"]
         plt.plot(smile[1]["logMoneyness"].values, impliedTotVariance.values, label = str(smile[0]))
     plt.legend()
     return
@@ -670,7 +671,7 @@ def modelSummaryGatheral(totalVariance,
 
     impliedVolPred = np.sqrt(totalVariancePred / benchDatasetScaled["Maturity"]) # np.sqrt(totalVariance / refDataset["Maturity"])
     predictionDiagnosis(impliedVolPred,
-                        benchDatasetScaled["ImpliedVol"],
+                        benchDatasetScaled[impliedVolColumn],
                         "Implied volatility",
                         az=az + azimutIncrement,
                         yMin=yMinScaled,
@@ -915,7 +916,7 @@ def diagnoseLocalVol(dT,
     #Number of violations
     arbitrageViolation = np.logical_or(dT < 0, density < 0)
     print("Number of arbitrage violations : ", arbitrageViolation.sum())
-    print("Arbitrable volatility : ", benchDataSet["ImpliedVol"][arbitrageViolation])
+    print("Arbitrable volatility : ", benchDataSet[impliedVolColumn][arbitrageViolation])
     print("Interpolated Arbitrable volatility : ", interpolatedImpliedVol[arbitrageViolation])
     plotSeriesWithViolation(dT,
                             arbitrageViolation,
@@ -931,8 +932,8 @@ def diagnoseLocalVol(dT,
                             yMin=az,
                             yMax=yMax,
                             zAsPercent=zAsPercent)
-    plot2SeriesWithViolation(benchDataSet["ImpliedVol"],
-                             benchDataSet["ImpliedVol"][arbitrageViolation],
+    plot2SeriesWithViolation(benchDataSet[impliedVolColumn],
+                             benchDataSet[impliedVolColumn][arbitrageViolation],
                              interpolatedImpliedVol,
                              interpolatedImpliedVol[arbitrageViolation],
                              Title='Implied and arbitrage Violations',
@@ -981,25 +982,25 @@ def plot2dSmiles(SSVIResults,
       curveBid = dataFiltered["ImpVolBid"]
       curveAsk = dataFiltered["ImpVolAsk"]
       if plotMarketData :
-        curveQuote = dataFiltered["ImpliedVol"]
+        curveQuote = dataFiltered[impliedVolColumn]
       
 
       x = k // widthPlot
       y = k % widthPlot
 
-      axs[x,y].set_ylim([0, 0.4])
+      #axs[x,y].set_ylim([0, 0.4])
       if SSVIResults is not None :
-        curveSSVI = impVol.loc[dataFiltered["ImpliedVol"].index]
+        curveSSVI = impVol.loc[dataFiltered[impliedVolColumn].index]
         plotList.append(axs[x,y].plot(curveSSVI.index.get_level_values("Strike"), curveSSVI.values, "k-", label = "SSVI"))
       if GPResults is not None :
-        curveGP = impVolGP.loc[dataFiltered["ImpliedVol"].index] 
+        curveGP = impVolGP.loc[dataFiltered[impliedVolColumn].index] 
         plotList.append(axs[x,y].plot(curveGP.index.get_level_values("Strike"), curveGP.values, "g-", label = "GP"))
       if NeuralResults is not None :
-        curveNN = impVolNN.loc[dataFiltered["ImpliedVol"].index] 
+        curveNN = impVolNN.loc[dataFiltered[impliedVolColumn].index] 
         plotList.append(axs[x,y].plot(curveNN.index.get_level_values("Strike"), curveNN.values, "m-", label = "NN"))
       
       if plotMarketData :
-        plotList.append(axs[x,y].plot(curveNN.index.get_level_values("Strike"), curveQuote.values, "k+", label = "Mid"))
+        plotList.append(axs[x,y].plot(curveAsk.index.get_level_values("Strike"), curveQuote.values, "k+", label = "Mid"))
       plotList.append(axs[x,y].plot(curveAsk.index.get_level_values("Strike"), curveAsk.values, "r+", label = "Ask"))
       plotList.append(axs[x,y].plot(curveBid.index.get_level_values("Strike"), curveBid.values, "b+", label = "Bid"))
       axs[x,y].set_title('Maturity : ' + str(round(maturities[k], 4)))

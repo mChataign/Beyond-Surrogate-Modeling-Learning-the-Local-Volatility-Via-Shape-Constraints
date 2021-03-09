@@ -10,6 +10,8 @@ import BS
 import dataSetConstruction
 import plotTools
 
+
+
 def rmse(a,b):
     return np.sqrt(np.nanmean(np.square(a-b)))
 
@@ -433,7 +435,7 @@ def loadCBOTData(pathFolder, fileName, asOfDate):
     rawData["ImpVolBid"] = impvolBid
     rawData["ImpVolCalibrated"] = impvolMid
     rawData["locvol"] = np.ones_like(rawData["ImpliedVol"]) 
-    misCalibrationThreshold = 0.01
+    misCalibrationThreshold = 0.05
     rawData = rawData[(rawData["ImpliedVol"] - rawData["ImpVolCalibrated"]).abs() <= misCalibrationThreshold]
     impliedVolSpreadThreshold = 0.05
     rawData = rawData[(rawData["ImpVolAsk"] - rawData["ImpVolBid"]).abs() <= impliedVolSpreadThreshold]

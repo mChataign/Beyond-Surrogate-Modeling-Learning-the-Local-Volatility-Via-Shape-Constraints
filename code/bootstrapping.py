@@ -8,6 +8,7 @@ import scipy
 
 import BS
 
+impliedVolColumn = BS.impliedVolColumn
 
 ######################################################################################################## Discounting
 #Compute the integral and return the linear interpolation function 

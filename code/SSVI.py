@@ -6,6 +6,8 @@ from scipy import *
 import bootstrapping
 from scipy.sparse import csc_matrix
 
+impliedVolColumn = BS.impliedVolColumn
+
 #####################################################################################    Black-scholes
 def blsprice(close,
              strike,
@@ -456,6 +458,7 @@ def fit_svi_surface(implied_volatility=None,
         parameters[3, t] = parameters[2, t] + 2 * parameters[1, t]
         parameters[4, t] = np.divide(parameters[0, t] * 4 * parameters[2, t] * parameters[3, t] ,
                                      np.square(parameters[2, t] + parameters[3, t])) 
+        theta[t] = svi_jumpwing(np.array([0.0]), parameters[:, t], maturities[t])[0][0]
 
     return parameters, theta, maturities, parametersSSVI
 
@@ -730,9 +733,9 @@ def svi_interpolation(log_moneyness=None,
             optionPrice[optionPrice < 0] = 0
         elif tau_interp < min(maturities):
             # extrapolation for small maturities
-            forward_0 = interp1(theta, forward_theta, 0, 'linear', 'extrapolate')
+            forward_0 = interp1(maturities, forward_theta, 0.0, 'linear', 'extrapolate')
             strike_1 = forward_0 * exp(log_moneyness)
-            isCall = np.where(optionType==1, True, False)
+            isCall = optionType==1 #np.where(optionType==1, True, False)
             optionPrice_1 = np.where(isCall,
                                      np.maximum(close - strike_1, 0),
                                      np.maximum(strike_1 - close, 0))
@@ -1041,7 +1044,7 @@ def interpolateGrid(df,
     return pd.Series(impliedVolInterpolated.values, index=index).sort_index()
 
 def train_svi_surface(df, S0):
-    parameters, theta, maturities, pSSVI = fit_svi_surface(df["ImpliedVol"].values, 
+    parameters, theta, maturities, pSSVI = fit_svi_surface(df[impliedVolColumn].values, 
                                                            df["Maturity"].values, 
                                                            df["logMoneyness"].values, 
                                                            'power_law',
@@ -1132,7 +1135,7 @@ class SSVIModel:
 
     def fit(self, df):
         filteredDf = removeMaturityInvalidData(df)
-        self.parameters, self.theta, self.maturities, self.pSSVI = fit_svi_surface(filteredDf["ImpliedVol"].values,
+        self.parameters, self.theta, self.maturities, self.pSSVI = fit_svi_surface(filteredDf[impliedVolColumn].values,
                                                                                    filteredDf["Maturity"].values,
                                                                                    filteredDf["logMoneyness"].values,
                                                                                    self.phi,

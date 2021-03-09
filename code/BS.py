@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 from math import *
 
+impliedVolColumn = "ImpVolCalibrated"
+
 def bsformula( callput, S0, K, r, T, sigma, q=0.):
     """
     :param callput: Indicates if the option is a Call or Put option

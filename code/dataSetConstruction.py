@@ -7,6 +7,8 @@ import sklearn as skl
 from sklearn import preprocessing
 import matplotlib.pyplot as plt
 
+impliedVolColumn = BS.impliedVolColumn
+
 ################################################################ Default dataset interpolator
 #Linear interpolation combined with Nearest neighbor extrapolation
 def customInterpolator(interpolatedData, newStrike, newMaturity):
@@ -55,15 +57,15 @@ def generateData(impliedVol,
   if priceDf is None :
     x_train = impliedVol.index.to_frame()
     #Get implied vol by interpolating another grid
-    x_train["ImpliedVol"] = impliedVol
-    x_train["OptionType"] = - np.ones_like(x_train["ImpliedVol"]) #Put by default
+    x_train[impliedVolColumn] = impliedVol
+    x_train["OptionType"] = - np.ones_like(x_train[impliedVolColumn]) #Put by default
   else :
     x_train = pd.MultiIndex.from_arrays([priceDf["Strike"], priceDf["Maturity"]], 
                                         names=('Strike', 'Maturity')).to_frame()
     #Get implied vol by interpolating another grid
-    x_train["ImpliedVol"] = customInterpolator(impliedVol, 
-                                               x_train["Strike"], 
-                                               x_train["Maturity"])
+    x_train[impliedVolColumn] = customInterpolator(impliedVol, 
+                                                     x_train["Strike"], 
+                                                     x_train["Maturity"])
     x_train["OptionType"] = np.where(priceDf["OptionType"] == 1,
                                      np.ravel(priceDf["OptionType"].values),
                                      -1)
@@ -73,7 +75,7 @@ def generateData(impliedVol,
                                                          S0,
                                                          x["Strike"] ,
                                                          x["Maturity"],
-                                                         x["ImpliedVol"],
+                                                         x[impliedVolColumn],
                                                          bootstrap.discountIntegral(x["Maturity"]),
                                                          bootstrap.dividendIntegral(x["Maturity"]))
   
@@ -102,15 +104,15 @@ def generateData(impliedVol,
   #Get adjusted strike for the change of variables
   changedVar = bootstrap.changeOfVariable(x_train["Strike"], x_train["Maturity"])
   
-  multiIndex = x_train["ImpliedVol"].index
+  multiIndex = x_train[impliedVolColumn].index
 
   #Gather all data as a Dataframe 
   cols = ["Price", "Delta", "Vega", "Delta Strike", "Gamma Strike", 
-          "Theta", "ChangedStrike", "DividendFactor", "Strike", "Maturity", "ImpliedVol", "VegaRef", "OptionType"]
+          "Theta", "ChangedStrike", "DividendFactor", "Strike", "Maturity", impliedVolColumn, "VegaRef", "OptionType"]
 
   dfData = np.vstack((prices, deltas, vegas, delta_ks, gamma_ks, delta_Ts) + 
                      changedVar + (x_train["Strike"], x_train["Maturity"],
-                                   x_train["ImpliedVol"], res1[:,2], x_train["OptionType"]))
+                                   x_train[impliedVolColumn], res1[:,2], x_train["OptionType"]))
   
   df = pd.DataFrame(dfData.T , columns=cols, index = multiIndex)
 
@@ -153,7 +155,7 @@ def generateData(impliedVol,
 
   #Add forward logmoneyness if we want to calibrate local volatility from implied volatilities
   df["logMoneyness"] = np.log(df["ChangedStrike"] / S0)
-  df["impliedTotalVariance"] = np.square(df["ImpliedVol"]) *  df["Maturity"]
+  df["impliedTotalVariance"] = np.square(df[impliedVolColumn]) *  df["Maturity"]
   if localVolatilityRef is not None :
     df["locvol"] = interpolatedLocalVolatility(localVolatilityRef, df["Price"])
 

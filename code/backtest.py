@@ -3,6 +3,8 @@ import pandas as pd
 import dataSetConstruction
 import bootstrapping
 
+impliedVolColumn = bootstrapping.impliedVolColumn
+
 ################################################################################################## Monte Carlo
 def interpolatedMCLocalVolatility(localVol,
                                   strikes,
@@ -233,5 +235,5 @@ def MonteCarloPricerVectorizedImplicit(S,
                                        bootstrap,
                                        nbPaths,
                                        nbTimeStep):
-  func = lambda x : MonteCarloPricerImplicit(S, x["Strike"], x["Maturity"], bootstrap, nbPaths, nbTimeStep, x["ImpliedVol"])
+  func = lambda x : MonteCarloPricerImplicit(S, x["Strike"], x["Maturity"], bootstrap, nbPaths, nbTimeStep, x[impliedVolColumn])
   return dataSet.apply(func, axis=1) * np.exp(-bootstrap.discountIntegral(dataSet.index.get_level_values("Maturity")))

@@ -10,9 +10,12 @@ import dataSetConstruction
 import bootstrapping
 import numpy as np
 import pandas as pd
+import scipy
 #tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 tf.logging.set_verbosity(tf.logging.ERROR)
 tf.disable_v2_behavior()
+
+impliedVolColumn = bootstrapping.impliedVolColumn
 
 activateScaling = False
 transformCustom = dataSetConstruction.transformCustomMinMax if activateScaling else dataSetConstruction.transformCustomId
@@ -1180,7 +1183,15 @@ def NNArchitectureHardConstrainedDupire(n_units, strikeTensor,
 
 
 ################################################################### Working on implied volatilities
-
+def computeWeighting(batch, scaler):
+    def secondMin(row):
+        return row.sort_values().iloc[1]
+    coordinates = dataSetConstruction.transformCustomMinMax(batch, scaler)[["logMoneyness", "logMaturity"]]
+    distanceToClosestPoint = pd.DataFrame(scipy.spatial.distance_matrix(coordinates,
+                                                                        coordinates), 
+                                          index = coordinates.index,
+                                          columns = coordinates.index).apply(secondMin)
+    return distanceToClosestPoint
 
 # Train neural network with a decreasing rule for learning rate
 # NNFactory :  function creating the architecture
@@ -1196,9 +1207,11 @@ def create_train_model_gatheral(NNFactory,
                                 modelName="bestModel"):
     hidden_nodes = hyperparameters["nbUnits"]
     nbEpoch = hyperparameters["maxEpoch"]
+    nbEpochFork = hyperparameters["nbEpochFork"]
     fixedLearningRate = (None if (("FixedLearningRate" in hyperparameters) and hyperparameters["FixedLearningRate"]) else hyperparameters["LearningRateStart"])
     patience = hyperparameters["Patience"]
     useLogMaturity = (hyperparameters["UseLogMaturity"] if ("UseLogMaturity" in hyperparameters) else False)
+    holderExponent = (hyperparameters["HolderExponent"] if ("HolderExponent" in hyperparameters) else 2.0)
 
     # Go through num_iters iterations (ignoring mini-batching)
     activateLearningDecrease = (~ hyperparameters["FixedLearningRate"])
@@ -1211,13 +1224,15 @@ def create_train_model_gatheral(NNFactory,
     start = time.time()
     # Reset the graph
     resetTensorflow()
-
     # Placeholders for input and output data
     Moneyness = tf.placeholder(tf.float32, [None, 1])
     Maturity = tf.placeholder(tf.float32, [None, 1])
     MoneynessPenalization = tf.placeholder(tf.float32, [None, 1])
     MaturityPenalization = tf.placeholder(tf.float32, [None, 1])
     y = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='y')
+    yBid = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='yBid')
+    yAsk = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='yAsk')
+    
     weighting = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='weighting')
     weightingPenalization = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='weightingPenalization')
     learningRateTensor = tf.placeholder(tf.float32, [])
@@ -1287,62 +1302,77 @@ def create_train_model_gatheral(NNFactory,
     TensorList = None
     penalizationList = None
     formattingFunction = None
-    if activateRegularization:  # Add pseudo local volatility regularisation
-        vol_pred_tensor, TensorList, penalizationList, formattingFunction = addDupireRegularisation(
-            *NNFactory(hidden_nodes,
-                       tensorDict,
-                       hyperparameters),
-            weighting,
-            hyperparameters)
-        vol_pred_tensor1, TensorList1, penalizationList1, formattingFunction1 = addDupireRegularisation(
-            *NNFactory(hidden_nodes,
-                       tensorDictPenalization,
-                       hyperparameters),
-            weightingPenalization,
-            hyperparameters)
-    else:
-        vol_pred_tensor, TensorList, penalizationList, formattingFunction = NNFactory(hidden_nodes,
-                                                                                      tensorDict,
-                                                                                      hyperparameters)
-        vol_pred_tensor1, TensorList1, penalizationList1, formattingFunction1 = NNFactory(hidden_nodes,
-                                                                                          tensorDictPenalization,
+    with tf.device("/gpu:0"):
+        if activateRegularization:  # Add pseudo local volatility regularisation
+            vol_pred_tensor, TensorList, penalizationList, formattingFunction = addDupireRegularisation(
+                *NNFactory(hidden_nodes,
+                           tensorDict,
+                           hyperparameters),
+                weighting,
+                hyperparameters)
+            vol_pred_tensor1, TensorList1, penalizationList1, formattingFunction1 = addDupireRegularisation(
+                *NNFactory(hidden_nodes,
+                           tensorDictPenalization,
+                           hyperparameters),
+                weightingPenalization,
+                hyperparameters)
+        else:
+            vol_pred_tensor, TensorList, penalizationList, formattingFunction = NNFactory(hidden_nodes,
+                                                                                          tensorDict,
                                                                                           hyperparameters)
+            vol_pred_tensor1, TensorList1, penalizationList1, formattingFunction1 = NNFactory(hidden_nodes,
+                                                                                              tensorDictPenalization,
+                                                                                              hyperparameters)
 
-    vol_pred_tensor_sc = vol_pred_tensor
-    unscaledMaturityTensor = (Maturity * scaleTensorMaturity + maturityMinTensor)
-    maturityOriginal = tf.exp(unscaledMaturityTensor) if useLogMaturity else  unscaledMaturityTensor
-    TensorList[0] = tf.square(vol_pred_tensor_sc) * maturityOriginal
+        vol_pred_tensor_sc = vol_pred_tensor
+        unscaledMaturityTensor = (Maturity * scaleTensorMaturity + maturityMinTensor)
+        maturityOriginal = tf.exp(unscaledMaturityTensor) if useLogMaturity else  unscaledMaturityTensor
+        TensorList[0] = tf.square(vol_pred_tensor_sc) * maturityOriginal
 
-    # Define a loss function
-    pointwiseError = tf.sqrt(tf.reduce_mean(tf.square((vol_pred_tensor_sc - y)/y) * weighting))
-    errors = tf.add_n([pointwiseError] + penalizationList1) #tf.add_n([pointwiseError] + penalizationList)
-    loss = tf.log(tf.reduce_mean(errors))
+        # Define a loss function
+        pointwiseError = tf.pow(tf.reduce_mean(tf.pow((vol_pred_tensor_sc - y)/y , holderExponent) * weighting), 1.0 / holderExponent)
+        errors = tf.add_n([pointwiseError] + penalizationList1) #tf.add_n([pointwiseError] + penalizationList)
+        loss = tf.log(tf.reduce_mean(errors))
+        
+        forkPenalization = hyperparameters["lambdaFork"] * tf.reduce_mean(tf.square(tf.nn.relu(yBid - vol_pred_tensor_sc) / yBid) + tf.square(tf.nn.relu(vol_pred_tensor_sc - yAsk) / yAsk))
+        errorFork = tf.add_n([pointwiseError, forkPenalization] + penalizationList1)
+        lossFork = tf.log(tf.reduce_mean(errorFork))
 
-    # Define a train operation to minimize the loss
-    lr = learningRate
+        # Define a train operation to minimize the loss
+        lr = learningRate
 
-    optimizer = tf.train.AdamOptimizer(learning_rate=learningRateTensor)
-    train = optimizer.minimize(loss)
+        optimizer = tf.train.AdamOptimizer(learning_rate=learningRateTensor)
+        train = optimizer.minimize(loss)
+        trainFork = optimizer.minimize(lossFork)
 
-    # Initialize variables and run session
-    init = tf.global_variables_initializer()
-    saver = tf.train.Saver()
-    sess = tf.Session()
+        # Initialize variables and run session
+        init = tf.global_variables_initializer()
+        saver = tf.train.Saver()
+    
+    config = tf.ConfigProto()
+    config.allow_soft_placement = True
+    sess = tf.Session(config=config)
     sess.run(init)
     n = dataSet.shape[0]
     loss_serie = []
+    
+    #Create weighting to focus learning on isolated points
+
 
     def createFeedDict(batch):
         batchSize = batch.shape[0]
         scaledBatch = dataSetConstruction.transformCustomMinMax(batch, scaler)
+        weighthingBatch = computeWeighting(batch, scaler)
         feedDict = {Moneyness: scaledBatch["logMoneyness"].values.reshape(batchSize, 1),  
                     Maturity:  scaledBatch["logMaturity"].values.reshape(batchSize, 1) if useLogMaturity else scaledBatch["Maturity"].values.reshape(batchSize, 1),  
-                    y: batch["ImpliedVol"].values.reshape(batchSize, 1),
+                    y: batch[impliedVolColumn].values.reshape(batchSize, 1),
+                    yBid : batch["ImpVolBid"].values.reshape(batchSize, 1),
+                    yAsk : batch["ImpVolAsk"].values.reshape(batchSize, 1),
                     MoneynessPenalization : np.expand_dims(kPenalization, 1),
                     MaturityPenalization : np.expand_dims(tPenalization, 1),
                     learningRateTensor: learningRate,
-                    weighting: np.ones_like(batch["logMoneyness"].values.reshape(batchSize, 1)),
-                    weightingPenalization : np.ones_like(np.expand_dims(kPenalization, 1))}
+                    weighting: np.expand_dims(weighthingBatch.values,1),#np.ones_like(batch["logMoneyness"].values.reshape(batchSize, 1)),
+                    weightingPenalization : np.mean(weighthingBatch) * np.ones_like(np.expand_dims(kPenalization, 1))}
         return feedDict
 
     # Learning rate is divided by 10 if no imporvement is observed for training loss after "patience" epochs
@@ -1366,17 +1396,18 @@ def create_train_model_gatheral(NNFactory,
         if not activateLearningDecrease:
             print("Learning rate : ", learningRate, " final loss : ", min(loss_serie))
         currentBestLoss = sess.run(loss, feed_dict=epochFeedDict)
-        currentBestPenalizations = sess.run([pointwiseError, penalizationList], feed_dict=epochFeedDict)
+        currentBestPenalizations = sess.run([pointwiseError, forkPenalization, penalizationList], feed_dict=epochFeedDict)
         currentBestPenalizations1 = sess.run([penalizationList1], feed_dict=epochFeedDict)
         print("Best loss (hidden nodes: %d, iterations: %d): %.2f" % (hidden_nodes, len(loss_serie), currentBestLoss))
         print("Best Penalization : ", currentBestPenalizations)
         print("Best Penalization (Refined Grid) : ", currentBestPenalizations1)
         return
-
+    
+    print("Training w.r.t. implied vol RMSE and arbitrage constraints")
     for i in range(nbEpoch):
         miniBatchList = [dataSet]
-        penalizationResult = sess.run(penalizationList, feed_dict=epochFeedDict)
-        lossResult = sess.run(pointwiseError, feed_dict=epochFeedDict)
+        #penalizationResult = sess.run(penalizationList, feed_dict=epochFeedDict)
+        #lossResult = sess.run(pointwiseError, feed_dict=epochFeedDict)
 
         # miniBatchList = selectMiniBatchWithoutReplacement(dataSet, batch_size)
         for k in range(len(miniBatchList)):
@@ -1398,6 +1429,35 @@ def create_train_model_gatheral(NNFactory,
                 break
     saver.restore(sess, modelName)
 
+    print("Training w.r.t. implied vol RMSE, arbitrage constraints and bid-ask fork violation")
+    learningRate = hyperparameters["LearningRateStart"]
+    loss_serie_fork = []
+    learningRateEpoch = 0
+    for i in range(nbEpochFork):
+        miniBatchList = [dataSet]
+        #penalizationResult = sess.run(penalizationList, feed_dict=epochFeedDict)
+        #lossResult = sess.run(pointwiseError, feed_dict=epochFeedDict)
+
+        # miniBatchList = selectMiniBatchWithoutReplacement(dataSet, batch_size)
+        for k in range(len(miniBatchList)):
+            batchFeedDict = createFeedDict(miniBatchList[k])
+            sess.run(trainFork, feed_dict=batchFeedDict)
+
+        loss_serie_fork.append(sess.run(lossFork, feed_dict=epochFeedDict))
+
+        if (len(loss_serie_fork) > 1) and (loss_serie_fork[-1] <= min(loss_serie_fork)):
+            # Save model as error is improved
+            saver.save(sess, modelName)
+        if (np.isnan(loss_serie_fork[-1]) or  # Unstable training
+                ((i - learningRateEpoch >= patience) and (min(loss_serie[-patience:]) > min(
+                    loss_serie)))):  # No improvement for training loss during the latest 100 iterations
+            continueTraining, learningRate, learningRateEpoch = updateLearningRate(i, learningRate, learningRateEpoch)
+            if continueTraining:
+                evalBestModel()
+            else:
+                break
+    
+    saver.restore(sess, modelName)
     evalBestModel()
     
     #Count arbitrage violations on refined grid (grid on which are applied penalizations)
@@ -1405,6 +1465,8 @@ def create_train_model_gatheral(NNFactory,
     refinedEpochDict = {Moneyness: np.expand_dims(kPenalization, 1),
                         Maturity:  np.expand_dims(tPenalization, 1),  
                         y: np.ones_like(np.expand_dims(kPenalization, 1)),
+                        yBid : np.ones_like(np.expand_dims(kPenalization, 1)),
+                        yAsk : np.ones_like(np.expand_dims(kPenalization, 1)),
                         MoneynessPenalization : np.expand_dims(kPenalization, 1),
                         MaturityPenalization : np.expand_dims(tPenalization, 1),
                         learningRateTensor: learningRate,
@@ -1424,7 +1486,7 @@ def create_train_model_gatheral(NNFactory,
     print("Training Time : ", end - start)
 
     #print(tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES))
-    lossEpochSerie = pd.Series(loss_serie)
+    lossEpochSerie = pd.Series(loss_serie + loss_serie_fork)
     lossEpochSerie.to_csv("loss" + modelName + ".csv", header = True)
 
     return formattingFunction(*evalList, loss_serie, dataSet, scaler)
@@ -1447,6 +1509,7 @@ def create_eval_model_gatheral(NNFactory,
     fixedLearningRate = (None if (("FixedLearningRate" in hyperparameters) and hyperparameters["FixedLearningRate"]) else hyperparameters["LearningRateStart"])
     patience = hyperparameters["Patience"]
     useLogMaturity = (hyperparameters["UseLogMaturity"] if ("UseLogMaturity" in hyperparameters) else False)
+    holderExponent = (hyperparameters["HolderExponent"] if ("HolderExponent" in hyperparameters) else 2.0)
 
     # Go through num_iters iterations (ignoring mini-batching)
     activateLearningDecrease = (~ hyperparameters["FixedLearningRate"])
@@ -1466,6 +1529,8 @@ def create_eval_model_gatheral(NNFactory,
     MoneynessPenalization = tf.placeholder(tf.float32, [None, 1])
     MaturityPenalization = tf.placeholder(tf.float32, [None, 1])
     y = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='y')
+    yBid = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='yBid')
+    yAsk = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='yAsk')
     weighting = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='weighting')
     weightingPenalization = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='weightingPenalization')
     learningRateTensor = tf.placeholder(tf.float32, [])
@@ -1562,15 +1627,20 @@ def create_eval_model_gatheral(NNFactory,
     TensorList[0] = tf.square(vol_pred_tensor_sc) * maturityOriginal
 
     # Define a loss function
-    pointwiseError = tf.sqrt(tf.reduce_mean(tf.square((vol_pred_tensor_sc - y)/y) * weighting))
+    pointwiseError = tf.pow(tf.reduce_mean(tf.pow((vol_pred_tensor_sc - y)/y , holderExponent) * weighting), 1.0 / holderExponent)
     errors = tf.add_n([pointwiseError] + penalizationList1) #tf.add_n([pointwiseError] + penalizationList)
     loss = tf.log(tf.reduce_mean(errors))
+    
+    forkPenalization = hyperparameters["lambdaFork"] * tf.reduce_mean(tf.square(tf.nn.relu(yBid - vol_pred_tensor_sc) / yBid) + tf.square(tf.nn.relu(vol_pred_tensor_sc - yAsk) / yAsk))
+    errorFork = tf.add_n([pointwiseError, forkPenalization] + penalizationList1)
+    lossFork = tf.log(tf.reduce_mean(errorFork))
 
     # Define a train operation to minimize the loss
     lr = learningRate
 
     optimizer = tf.train.AdamOptimizer(learning_rate=learningRateTensor)
     train = optimizer.minimize(loss)
+    trainFork = optimizer.minimize(lossFork)
 
     # Initialize variables and run session
     init = tf.global_variables_initializer()
@@ -1580,17 +1650,23 @@ def create_eval_model_gatheral(NNFactory,
     n = dataSet.shape[0]
     loss_serie = []
 
+    #Create weighting to focus learning on isolated points
+
+
     def createFeedDict(batch):
         batchSize = batch.shape[0]
         scaledBatch = dataSetConstruction.transformCustomMinMax(batch, scaler)
+        weighthingBatch = computeWeighting(batch, scaler)
         feedDict = {Moneyness: scaledBatch["logMoneyness"].values.reshape(batchSize, 1),  
                     Maturity:  scaledBatch["logMaturity"].values.reshape(batchSize, 1) if useLogMaturity else scaledBatch["Maturity"].values.reshape(batchSize, 1),  
-                    y: batch["ImpliedVol"].values.reshape(batchSize, 1),
+                    y: batch[impliedVolColumn].values.reshape(batchSize, 1),
+                    yBid : batch["ImpVolBid"].values.reshape(batchSize, 1),
+                    yAsk : batch["ImpVolAsk"].values.reshape(batchSize, 1),
                     MoneynessPenalization : np.expand_dims(kPenalization, 1),
                     MaturityPenalization : np.expand_dims(tPenalization, 1),
                     learningRateTensor: learningRate,
-                    weighting: np.ones_like(batch["logMoneyness"].values.reshape(batchSize, 1)),
-                    weightingPenalization : np.ones_like(np.expand_dims(kPenalization, 1))}
+                    weighting: np.expand_dims(weighthingBatch.values,1),#np.ones_like(batch["logMoneyness"].values.reshape(batchSize, 1)),
+                    weightingPenalization : np.mean(weighthingBatch) * np.ones_like(np.expand_dims(kPenalization, 1))}
         return feedDict
 
     epochFeedDict = createFeedDict(dataSet)
@@ -1599,7 +1675,7 @@ def create_eval_model_gatheral(NNFactory,
         if not activateLearningDecrease:
             print("Learning rate : ", learningRate, " final loss : ", min(loss_serie))
         currentBestLoss = sess.run(loss, feed_dict=epochFeedDict)
-        currentBestPenalizations = sess.run([pointwiseError, penalizationList], feed_dict=epochFeedDict)
+        currentBestPenalizations = sess.run([pointwiseError, forkPenalization, penalizationList], feed_dict=epochFeedDict)
         currentBestPenalizations1 = sess.run([penalizationList1], feed_dict=epochFeedDict)
         print("Best loss (hidden nodes: %d, iterations: %d): %.2f" % (hidden_nodes, len(loss_serie), currentBestLoss))
         print("Best Penalization : ", currentBestPenalizations)
@@ -1616,6 +1692,8 @@ def create_eval_model_gatheral(NNFactory,
                         Maturity:  np.expand_dims(tPenalization, 1),  
                         y: np.ones_like(np.expand_dims(kPenalization, 1)),
                         MoneynessPenalization : np.expand_dims(kPenalization, 1),
+                        yBid : np.ones_like(np.expand_dims(kPenalization, 1)),
+                        yAsk : np.ones_like(np.expand_dims(kPenalization, 1)),
                         MaturityPenalization : np.expand_dims(tPenalization, 1),
                         learningRateTensor: learningRate,
                         weighting: np.ones_like(np.expand_dims(kPenalization, 1)),
@@ -1648,6 +1726,7 @@ def evalVolLocaleGatheral(NNFactory,
     fixedLearningRate = (None if (("FixedLearningRate" in hyperparameters) and hyperparameters["FixedLearningRate"]) else hyperparameters["LearningRateStart"])
     patience = hyperparameters["Patience"]
     useLogMaturity = (hyperparameters["UseLogMaturity"] if ("UseLogMaturity" in hyperparameters) else False)
+    holderExponent = (hyperparameters["HolderExponent"] if ("HolderExponent" in hyperparameters) else 2.0)
 
     # Go through num_iters iterations (ignoring mini-batching)
     activateLearningDecrease = (~ hyperparameters["FixedLearningRate"])
@@ -1667,6 +1746,8 @@ def evalVolLocaleGatheral(NNFactory,
     MoneynessPenalization = tf.placeholder(tf.float32, [None, 1])
     MaturityPenalization = tf.placeholder(tf.float32, [None, 1])
     y = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='y')
+    yBid = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='yBid')
+    yAsk = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='yAsk')
     weighting = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='weighting')
     weightingPenalization = tf.placeholder(shape=(None, 1), dtype=tf.float32, name='weightingPenalization')
     learningRateTensor = tf.placeholder(tf.float32, [])
@@ -1751,12 +1832,17 @@ def evalVolLocaleGatheral(NNFactory,
     TensorList[0] = tf.square(vol_pred_tensor_sc) * maturityOriginal
 
     # Define a loss function
-    pointwiseError =tf.sqrt(tf.reduce_mean(tf.square((vol_pred_tensor_sc - y)/y) * weighting))
+    pointwiseError =tf.pow(tf.reduce_mean(tf.pow((vol_pred_tensor_sc - y)/y , holderExponent) * weighting), 1.0 / holderExponent)
     errors = tf.add_n([pointwiseError] + penalizationList1)
     loss = tf.log(tf.reduce_mean(errors))
+    
+    forkPenalization = hyperparameters["lambdaFork"] * tf.reduce_mean(tf.square(tf.nn.relu(yBid - vol_pred_tensor_sc) / yBid) + tf.square(tf.nn.relu(vol_pred_tensor_sc - yAsk) / yAsk))
+    errorFork = tf.add_n([pointwiseError, forkPenalization] + penalizationList1)
+    lossFork = tf.log(tf.reduce_mean(errorFork))
 
     optimizer = tf.train.AdamOptimizer(learning_rate=learningRateTensor)
     train = optimizer.minimize(loss)
+    trainFork = optimizer.minimize(lossFork)
 
     # Initialize variables and run session
     init = tf.global_variables_initializer()
