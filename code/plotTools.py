@@ -981,6 +981,7 @@ def plot2dSmiles(SSVIResults,
       dataFiltered = concatDf[concatDf.index.get_level_values("Maturity") == maturities[k]]
       curveBid = dataFiltered["ImpVolBid"]
       curveAsk = dataFiltered["ImpVolAsk"]
+      logMoneyness  = dataFiltered["logMoneyness"]
       if plotMarketData :
         curveQuote = dataFiltered[impliedVolColumn]
       
@@ -991,18 +992,24 @@ def plot2dSmiles(SSVIResults,
       #axs[x,y].set_ylim([0, 0.4])
       if SSVIResults is not None :
         curveSSVI = impVol.loc[dataFiltered[impliedVolColumn].index]
-        plotList.append(axs[x,y].plot(curveSSVI.index.get_level_values("Strike"), curveSSVI.values, "k-", label = "SSVI"))
+        #plotList.append(axs[x,y].plot(curveSSVI.index.get_level_values("Strike"), curveSSVI.values, "k-", label = "SSVI"))
+        plotList.append(axs[x,y].plot(logMoneyness, curveSSVI.values, "k-", label = "SSVI"))
       if GPResults is not None :
         curveGP = impVolGP.loc[dataFiltered[impliedVolColumn].index] 
-        plotList.append(axs[x,y].plot(curveGP.index.get_level_values("Strike"), curveGP.values, "g-", label = "GP"))
+        #plotList.append(axs[x,y].plot(curveGP.index.get_level_values("Strike"), curveGP.values, "g-", label = "GP"))
+        plotList.append(axs[x,y].plot(logMoneyness, curveGP.values, "g-", label = "GP"))
       if NeuralResults is not None :
         curveNN = impVolNN.loc[dataFiltered[impliedVolColumn].index] 
-        plotList.append(axs[x,y].plot(curveNN.index.get_level_values("Strike"), curveNN.values, "m-", label = "NN"))
+        #plotList.append(axs[x,y].plot(curveNN.index.get_level_values("Strike"), curveNN.values, "m-", label = "NN"))
+        plotList.append(axs[x,y].plot(logMoneyness, curveNN.values, "m-", label = "NN"))
       
       if plotMarketData :
-        plotList.append(axs[x,y].plot(curveAsk.index.get_level_values("Strike"), curveQuote.values, "k+", label = "Mid"))
-      plotList.append(axs[x,y].plot(curveAsk.index.get_level_values("Strike"), curveAsk.values, "r+", label = "Ask"))
-      plotList.append(axs[x,y].plot(curveBid.index.get_level_values("Strike"), curveBid.values, "b+", label = "Bid"))
+        #plotList.append(axs[x,y].plot(curveAsk.index.get_level_values("Strike"), curveQuote.values, "k+", label = "Mid"))
+        plotList.append(axs[x,y].plot(logMoneyness, curveQuote.values, "k+", label = "Mid"))
+      #plotList.append(axs[x,y].plot(curveAsk.index.get_level_values("Strike"), curveAsk.values, "r+", label = "Ask"))
+      #plotList.append(axs[x,y].plot(curveBid.index.get_level_values("Strike"), curveBid.values, "b+", label = "Bid"))
+      #axs[x,y].fill_between(curveAsk.index.get_level_values("Strike"), curveBid.values, curveAsk.values, alpha = 0.3)
+      axs[x,y].fill_between(logMoneyness, curveBid.values, curveAsk.values, alpha = 0.3)
       axs[x,y].set_title('Maturity : ' + str(round(maturities[k], 4)))
       axs[x,y].set_facecolor('white')
       for spine in axs[x,y].spines.values():
@@ -1018,7 +1025,7 @@ def plot2dSmiles(SSVIResults,
         labels.append("NN")
     if plotMarketData :
         labels.append("Mid")
-    labels = labels + ["Ask", "Bid"]
+    #labels = labels + ["Ask", "Bid"]
     nbDeleted = 0
     for k in range(nbMaturities, nbFrame):
       x = k // widthPlot
@@ -1087,8 +1094,9 @@ def plot2dPriceSmiles(SSVIResults,
       plotList.append(axs[x,y].plot(curveNN.index.get_level_values("Strike"), curveNN.values, "m-", label = "NN"))
       if plotMarketData :
         plotList.append(axs[x,y].plot(curveNN.index.get_level_values("Strike"), curveQuote.values, "k+", label = "Mid"))
-      plotList.append(axs[x,y].plot(curveAsk.index.get_level_values("Strike"), curveAsk.values, "r+", label = "Ask"))
-      plotList.append(axs[x,y].plot(curveBid.index.get_level_values("Strike"), curveBid.values, "b+", label = "Bid"))
+      #plotList.append(axs[x,y].plot(curveAsk.index.get_level_values("Strike"), curveAsk.values, "r+", label = "Ask"))
+      #plotList.append(axs[x,y].plot(curveBid.index.get_level_values("Strike"), curveBid.values, "b+", label = "Bid"))
+      axs[x,y].fill_between(curveAsk.index.get_level_values("Strike"), curveBid.values, curveAsk.values, alpha = 0.3)
       axs[x,y].set_title('Maturity : ' + str(round(maturities[k], 4)))
       axs[x,y].set_facecolor('white')
       for spine in axs[x,y].spines.values():
@@ -1100,8 +1108,8 @@ def plot2dPriceSmiles(SSVIResults,
       x = k // widthPlot
       y = k % widthPlot
       if nbDeleted == 0 : 
-        fig.legend(plotList[-6:] if plotMarketData else plotList[-6:] ,     # The line objects
-                   labels= ["SSVI", "GP", "NN", "Mid", "Ask", "Bid"] if plotMarketData else ["SSVI", "GP", "NN", "Ask", "Bid"],   # The labels for each line
+        fig.legend(plotList[-4:] if plotMarketData else plotList[-4:] ,     # The line objects
+                   labels= ["SSVI", "GP", "NN", "Mid"] if plotMarketData else ["SSVI", "GP", "NN"],   # The labels for each line
                    loc="center",   # Position of legend
                    borderaxespad=0.1,    # Small spacing around legend box
                    title="Legend Title",  # Title for the legend
@@ -1115,3 +1123,100 @@ def plot2dPriceSmiles(SSVIResults,
 
 
 
+def plot2dSmilesTotalVariance(SSVIResults, 
+                              GPResults, 
+                              NeuralResults, 
+                              concatDf,
+                              plotMarketData = True,
+                              nbObservationThreshold = 0):
+    impliedTotVarianceFunction = lambda x : x * x.index.get_level_values("Maturity")
+    impVar = impliedTotVarianceFunction(SSVIResults["ImpliedVol"]) if SSVIResults is not None else None
+    impVarGP = impliedTotVarianceFunction(GPResults["ImpliedVol"]) if GPResults is not None else None
+    impVarNN = impliedTotVarianceFunction(NeuralResults["ImpliedVol"]) if NeuralResults is not None else None
+    #Select maturities for which the smile has at least nbObservationThreshold points
+    maturitiesCount = concatDf.groupby(level = "Maturity").count()["Price"]
+    maturities = maturitiesCount[maturitiesCount >= nbObservationThreshold].index.get_level_values("Maturity").unique() #[1::2]
+    #maturities = maturities.insert(0,maturitiesCount[maturitiesCount >= nbObservationThreshold].index.get_level_values("Maturity").unique()[0])
+    nbMaturities = maturities.size
+    
+    
+    widthPlot = 4#math.ceil(nbMaturities/heightPlot)
+    heightPlot = math.ceil(nbMaturities/widthPlot)#int(np.sqrt(nbMaturities)) +  1 #2 
+    nbFrame = heightPlot * widthPlot 
+
+    fig, axs = plt.subplots(heightPlot, widthPlot,figsize=(30,30))
+    fig.subplots_adjust( wspace=0.2, hspace=0.4)
+    #fig.suptitle('Implied volatility calibrated', fontsize=20)
+    plotList = []
+
+    for k in range(nbMaturities):
+      dataFiltered = concatDf[concatDf.index.get_level_values("Maturity") == maturities[k]]
+      curveBid = impliedTotVarianceFunction(dataFiltered["ImpVolBid"])
+      curveAsk = impliedTotVarianceFunction(dataFiltered["ImpVolAsk"])
+      logMoneyness  = dataFiltered["logMoneyness"]
+      if plotMarketData :
+        curveQuote = impliedTotVarianceFunction(dataFiltered[impliedVolColumn])
+      
+
+      x = k // widthPlot
+      y = k % widthPlot
+
+      #axs[x,y].set_ylim([0, 0.4])
+      if SSVIResults is not None :
+        curveSSVI = impVar.loc[dataFiltered[impliedVolColumn].index]
+        #plotList.append(axs[x,y].plot(curveSSVI.index.get_level_values("Strike"), curveSSVI.values, "k-", label = "SSVI"))
+        plotList.append(axs[x,y].plot(logMoneyness, curveSSVI.values, "k-", label = "SSVI"))
+      if GPResults is not None :
+        curveGP = impVarGP.loc[dataFiltered[impliedVolColumn].index] 
+        #plotList.append(axs[x,y].plot(curveGP.index.get_level_values("Strike"), curveGP.values, "g-", label = "GP"))
+        plotList.append(axs[x,y].plot(logMoneyness, curveGP.values, "g-", label = "GP"))
+      if NeuralResults is not None :
+        curveNN = impVarNN.loc[dataFiltered[impliedVolColumn].index] 
+        #plotList.append(axs[x,y].plot(curveNN.index.get_level_values("Strike"), curveNN.values, "m-", label = "NN"))
+        plotList.append(axs[x,y].plot(logMoneyness, curveNN.values, "m-", label = "NN"))
+      
+      if plotMarketData :
+        #plotList.append(axs[x,y].plot(curveAsk.index.get_level_values("Strike"), curveQuote.values, "k+", label = "Mid"))
+        plotList.append(axs[x,y].plot(logMoneyness, curveQuote.values, "k+", label = "Mid"))
+      #plotList.append(axs[x,y].plot(curveAsk.index.get_level_values("Strike"), curveAsk.values, "r+", label = "Ask"))
+      #plotList.append(axs[x,y].plot(curveBid.index.get_level_values("Strike"), curveBid.values, "b+", label = "Bid"))
+      #axs[x,y].fill_between(curveAsk.index.get_level_values("Strike"), curveBid.values, curveAsk.values, alpha = 0.3)
+      axs[x,y].fill_between(logMoneyness, curveBid.values, curveAsk.values, alpha = 0.3)
+      axs[x,y].set_title('Maturity : ' + str(round(maturities[k], 4)))
+      axs[x,y].set_facecolor('white')
+      for spine in axs[x,y].spines.values():
+        spine.set_visible(True)
+        spine.set_color("k")
+    
+    labels = []
+    if SSVIResults is not None :
+        labels.append("SSVI")
+    if GPResults is not None :
+        labels.append("GP")
+    if NeuralResults is not None :
+        labels.append("NN")
+    if plotMarketData :
+        labels.append("Mid")
+    #labels = labels + ["Ask", "Bid"]
+    nbDeleted = 0
+    for k in range(nbMaturities, nbFrame):
+      x = k // widthPlot
+      y = k % widthPlot
+      if nbDeleted == 0 : 
+        chartBox = axs[x,y].get_position()
+        fig.delaxes(axs[x,y])
+        fig.legend(plotList[-len(labels):],     # The line objects
+                   labels= labels,   # The labels for each line
+                   loc="lower left",   # Position of legend
+                   borderaxespad=0.1,    # Small spacing around legend box
+                   title=None,  # Title for the legend
+                   fontsize = '20',
+                   title_fontsize = '20',
+                   bbox_to_anchor=[chartBox.x0, chartBox.y0, chartBox.width, chartBox.height])
+      
+      nbDeleted = nbDeleted + 1
+
+     
+
+
+    plt.show()

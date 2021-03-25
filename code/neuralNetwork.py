@@ -1956,7 +1956,7 @@ def rawDupireFormulaGatheral(totalVarianceTensor,
 
 # Soft constraints for strike convexity and strike/maturity monotonicity
 def arbitragePenalties(dT, gatheralDenominator, weighting, hyperparameters):
-    lambdas = 1.0 / tf.reduce_mean(weighting)
+    lambdas = tf.reduce_mean(weighting)
     lowerBoundTheta = tf.constant(hyperparameters["lowerBoundTheta"])
     lowerBoundGamma = tf.constant(hyperparameters["lowerBoundGamma"])
     calendar_penalty = lambdas * hyperparameters["lambdaSoft"] * tf.reduce_mean(tf.nn.relu(-dT + lowerBoundTheta))

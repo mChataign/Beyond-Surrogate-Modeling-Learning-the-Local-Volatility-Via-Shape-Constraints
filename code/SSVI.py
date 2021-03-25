@@ -5,6 +5,7 @@ import BS
 from scipy import *
 import bootstrapping
 from scipy.sparse import csc_matrix
+import matplotlib.pyplot as plt
 
 impliedVolColumn = BS.impliedVolColumn
 
@@ -86,8 +87,41 @@ def unsortedUniquePairs(a):
     return [a[i] for i in np.sort(idx)]
 
 
+def monotonicInterpolation(theta, maturities):
+    previousMaxIdx = 0
+    previousMax = 0
+    monotonicCurve = []
+    
+    thetaSeries = pd.Series(theta, index = maturities)
+    if thetaSeries.isnull().values.any() : # Interpolate missing values and then create an increasing curve from monotonic curve
+        thetaIncreasing = thetaSeries.dropna() 
+        filledCurve = []
+        for i in range(theta.size):
+            if np.isnan(theta[i]) : 
+                filledCurve.append(interp1(thetaIncreasing.index, thetaIncreasing.values, maturities[i], 'linear', 'extrapolate'))
+            else : 
+                filledCurve.append(thetaIncreasing.loc[maturities[i]])
+        monotonicCurve = monotonicInterpolation(np.array(filledCurve), maturities).values
+        
+    else :# Interpolate each value which breaks increase as the barycenter of the two closest point ensuring monotonicity
+        for i in range(theta.size):
+            if (previousMax <= theta[i]) :
+                previousMaxIdx = i
+                previousMax = theta[i]
+            else : 
+                alpha1 = None
+                for j in range(i, theta.size):
+                    if (previousMax <= theta[j]) :
+                        denominator = (maturities[j] - maturities[previousMaxIdx])
+                        alpha1 = (maturities[i] - maturities[previousMaxIdx]) / denominator
+                        alpha2 = (maturities[j] - maturities[i]) / denominator
+                        previousMax = (alpha1 * theta[j] + alpha2 * theta[previousMaxIdx])
+                        break
+                previousMaxIdx = i
+            monotonicCurve.append(previousMax)
+    return pd.Series(monotonicCurve, index = maturities)
 #####################################################################################    First SSVI calibration
-def fit_ssvi(phifun=None, log_moneyness=None, theta_expanded=None, total_implied_variance=None):
+def fit_ssvi(phifun=None, log_moneyness=None, theta_expanded=None, total_implied_variance=None, tau_expanded = None):
     lb = np.array([-1, 0])
     ub = np.array([1, np.inf])
     lambdaConstraint = 1#10000
@@ -97,21 +131,13 @@ def fit_ssvi(phifun=None, log_moneyness=None, theta_expanded=None, total_implied
     #options = optimset('fmincon')
     #options = optimset(options, 'algorithm', 'interior-point')
     #options = optimset(options, 'Display', 'off')
-    targetfun = lambda x: fitfunctionSSVI(x, phifun, log_moneyness, theta_expanded, total_implied_variance)
+    targetfun = lambda x: fitfunctionSSVI(x, phifun, log_moneyness, theta_expanded, total_implied_variance, tau_expanded)
     # perform optimization N times with random start values
     N = 100
     parameters = np.zeros((size(lb), N))
     funValue = np.zeros((N, 1))
     for n in np.arange(N):
         param0 = generateRandomStartValues(lb, ub)
-        #parameters[:, n], funValue[n,1] = fmincon(targetfun, param0, 
-        #                                          [], [], [], [], 
-        #                                          lb, ub, c, options)
-        #constraints = (scipy.optimize.NonlinearConstraint(c,
-        #                                                  -np.inf, 0,
-        #                                                  jac=cJac,
-        #                                                  hess=cHess,
-        #                                                  keep_feasible=False))
         constraints = {"type" : "ineq",
                        "fun" : lambda x : np.array([ - c(x) ]),
                        "jac" : lambda x : np.array([ - cJac(x) ])}
@@ -130,13 +156,9 @@ def fit_ssvi(phifun=None, log_moneyness=None, theta_expanded=None, total_implied
 
     if phifun == 'power_law':
         parameters = np.concatenate((parameters, [0.5]))
-    #print("parameters", parameters)
-    #print("idMin", idMin)
-    #print("res.x", res.x)
-    #print("res.fun", res.fun)
     return parameters
 
-def fitfunctionSSVI(x=None, phifun=None, log_moneyness=None, theta=None, total_implied_variance=None):
+def fitfunctionSSVI(x=None, phifun=None, log_moneyness=None, theta=None, total_implied_variance=None, tau_expanded = None):
     # extract parameters from x
     rho = x[0]
     __switch_0__ = phifun
@@ -148,7 +170,7 @@ def fitfunctionSSVI(x=None, phifun=None, log_moneyness=None, theta=None, total_i
         raise Exception('Incorrect function for phi') 
     model_total_implied_variance, _ = svi_surface(log_moneyness, theta, rho, 
                                                   phifun, phi_param, 
-                                                  np.ones_like(log_moneyness))
+                                                  tau_expanded)
     value = norm(total_implied_variance - model_total_implied_variance)
     return value
 
@@ -205,7 +227,9 @@ def fit_svi(x0=None, k=None,
             tau=None,
             gridPenalization = None,
             param_slice_before = None,
-            param_slice_after = None):
+            param_slice_after = None,
+            tau_before = None,
+            tau_after = None):
     # fit_svi fits a volatility slice to observed implied volatilities. 
     # get variable bounds
     large = 1e5
@@ -219,7 +243,9 @@ def fit_svi(x0=None, k=None,
                                          tau,
                                          gridPenalization,
                                          param_slice_before,
-                                         param_slice_after)
+                                         param_slice_after,
+                                         tau_before,
+                                         tau_after)
     # only optimize first three variables, final two are set by no-arbitrage condition
 
     x0 = x0[:3] # order of parameters [v, psi, p, c, vt]
@@ -232,12 +258,28 @@ def fit_svi(x0=None, k=None,
     #print("slice_before",slice_before)
     parameters = None
     fval = np.inf
-    #constraints = (scipy.optimize.LinearConstraint(np.expand_dims(A, axis=0),
-    #                                               b-small, b+small,
-    #                                               keep_feasible=False))
     constraints = {"type" : "ineq",
                    "fun" : lambda x : np.array([ A @ x ]),
                    "jac" : lambda x : np.array([ [0, 2, 1] ])}
+    
+    x3 = x0[2] + 2 * x0[1]
+    x4 = x0[0] * 4 * x0[2] * x3 / (x0[2] + x3) ** 2
+    newX = np.concatenate((x0, np.array([x3,x4]))) 
+    calendarConstraint = crossedNess(gridPenalization, 
+                                     newX, 
+                                     tau,
+                                     param_slice_before, 
+                                     tau_before,
+                                     param_slice_after, 
+                                     tau_after)
+    print()
+    print("x0")
+    print("Calendar constraint : ", calendarConstraint, "  ", "violated" if calendarConstraint > 0 else "satisfied")
+    print("Butterfly constraint : ", A @ x0, "  ", "violated" if A @ x0 <= 0 else "satisfied")
+    model_total_implied_variance,_ = svi_jumpwing(k, newX, tau)
+    print("RMSE : ", norm(total_implied_variance - model_total_implied_variance))
+    print()
+    
     nbRestart = 50
     for i in np.arange(nbRestart):
         res = scipy.optimize.minimize(targetfun, x0, 
@@ -248,23 +290,48 @@ def fit_svi(x0=None, k=None,
         if (i==0) or (fval > res.fun) :
             fval =  res.fun
             parameters = res.x
-    print("Contrainte : ", A @ res.x)
     
-    # use ga to find solution if optimizer gets stuck
-    #if fval >= 1e6:
-    #    res1 = scipy.optimize.differential_evolution(targetfun, 
-    #                                                 list(zip(lb, ub)),#[lb, ub],
-    #                                                 init = [x0])#, constraints = constraints)
-    #    fval =  res1.fun
-    #    parameters = res1.x
-    #else:
-    #    res1 = scipy.optimize.differential_evolution(targetfun, 
-    #                                                 list(zip(lb, ub)),#[lb, ub],
-    #                                                 init = [x0, parameters])#, constraints = constraints)
-    #    fval =  res1.fun
-    #    parameters = res1.x
     
+    x3 = res.x[2] + 2 * res.x[1]
+    x4 = res.x[0] * 4 * res.x[2] * x3 / (res.x[2] + x3) ** 2
+    newX = np.concatenate((res.x, np.array([x3,x4]))) 
+    calendarConstraint = crossedNess(gridPenalization, 
+                                     newX, 
+                                     tau,
+                                     param_slice_before, 
+                                     tau_before,
+                                     param_slice_after, 
+                                     tau_after)
+    print("Calendar constraint : ", calendarConstraint, "  ", "violated" if calendarConstraint > 0 else "satisfied")
+    print("Butterfly constraint : ", A @ res.x, "  ", "violated" if A @ res.x <= 0 else "satisfied")
+    model_total_implied_variance,_ = svi_jumpwing(k, newX, tau)
+    print("RMSE : ", norm(total_implied_variance - model_total_implied_variance))
+    print("--------------------------------------------------------------------")
+    print()
     return parameters
+
+def crossedNess(gridPenalization, 
+                newX, 
+                tau,
+                param_slice_before, 
+                tau_before,
+                param_slice_after, 
+                tau_after):
+    
+    model_total_implied_variance,_ = svi_jumpwing(gridPenalization, newX, tau)
+    crossedness = 0.0 
+    threshold = 1e-4
+    if not isempty(param_slice_before):
+        before_total_implied_variance,_ = svi_jumpwing(gridPenalization, param_slice_before, tau_before)
+        if any(model_total_implied_variance < before_total_implied_variance) :
+            crossedness += np.amax(np.maximum( before_total_implied_variance - model_total_implied_variance + threshold, 0))
+            
+    if not isempty(param_slice_after):
+        after_total_implied_variance,_ = svi_jumpwing(gridPenalization, param_slice_after, tau_after)
+        if any(model_total_implied_variance > after_total_implied_variance) :
+            crossedness += np.amax(np.maximum( model_total_implied_variance - after_total_implied_variance + threshold, 0))
+    
+    return crossedness
 
 def fitfunctionSVI(x=None, k=None, 
                    total_implied_variance=None, 
@@ -272,7 +339,9 @@ def fitfunctionSVI(x=None, k=None,
                    tau=None,
                    gridPenalization = None,
                    param_slice_before = None,
-                   param_slice_after = None):
+                   param_slice_after = None,
+                   tau_before = None,
+                   tau_after = None):
     # fitfunction is the objective function of the minimization of fit_svi. The objective is the 2-norm
     # of the error in total implied variance. If specified, the function tests whether the current total
     # variance slice lies between the prior and later slice. If the arbitrage bound is violated, the
@@ -319,21 +388,14 @@ def fitfunctionSVI(x=None, k=None,
     #if not isempty(gridPenalization) and ((not isempty(param_slice_before)) or
     #                                      (not isempty(param_slice_after))):
     if not isempty(gridPenalization) :
-        model_total_implied_variance,_ = svi_jumpwing(gridPenalization, newX, tau)
-        
-        if not isempty(param_slice_before):
-            before_total_implied_variance,_ = svi_jumpwing(gridPenalization, param_slice_before, tau)
-            if any(model_total_implied_variance < before_total_implied_variance) :
-                #value = 1e6
-                crossedness = np.amax(np.maximum( before_total_implied_variance - model_total_implied_variance, 0))
-                value += crossedness
-                
-        if not isempty(param_slice_after):
-            after_total_implied_variance,_ = svi_jumpwing(gridPenalization, param_slice_after, tau)
-            if any(model_total_implied_variance > after_total_implied_variance) :
-                #value = 1e6
-                crossedness = np.amax(np.maximum( model_total_implied_variance - after_total_implied_variance, 0))
-                value =+ crossedness
+        lambdaCalendar = 1e8
+        value += lambdaCalendar * crossedNess(gridPenalization, 
+                                              newX, 
+                                              tau,
+                                              param_slice_before, 
+                                              tau_before,
+                                              param_slice_after, 
+                                              tau_after)
     
     return value
 
@@ -381,19 +443,30 @@ def fit_svi_surface(implied_volatility=None,
         tiv_t = total_implied_variance[pos]
         if np.isin(0, log_moneyness[pos]):
             theta[t] = tiv_t[log_moneyness[pos] == 0] #ATM total implied variance 
-        else:#Interpolate ATM total implied variance from the smile
-            theta[t] = max(interp1(log_moneyness[pos], tiv_t, 0, 'linear', 'extrapolate'), theta[t-1] if t > 0 else 0)
-        
+        else:#Interpolate ATM total implied variance from the smile when 0 is contained in the logmoneyness domain
+            if 0.0 <= np.amax(log_moneyness[pos]) :
+                theta[t] = interp1(log_moneyness[pos], tiv_t, 0, 'linear', 'extrapolate')
+            else :
+                theta[t] = np.nan
+            #plt.plot(log_moneyness[pos], tiv_t)
+            #plt.title(str(maturities[t]))
+            #plt.show()
+    thetaSeries = monotonicInterpolation(theta, maturities)
+    theta = thetaSeries.values
+    maturities = thetaSeries.index
+    for t in np.arange(T):
+        pos = (maturity == maturities[t]) #position corresponding to a slice i.e. a smile
         theta_expanded[pos] = theta[t]
     
-
+    
     # step three: fit SVI surface by estimating parameters = [rho, lambda] subject to parameter bounds:
     # -1 < rho < 1, 0 < lambda
     # and constraints: in heston_like: (1 + |rho|) <= 4 lambda, in power-law: eta(1+|rho|) <= 2
     parameters = fit_ssvi(phifun, 
                           log_moneyness, 
                           theta_expanded, 
-                          total_implied_variance)
+                          total_implied_variance,
+                          maturity)
     parametersSSVI = parameters
     print("Parameters of SSVI model : ", parametersSSVI)
     
@@ -417,8 +490,8 @@ def fit_svi_surface(implied_volatility=None,
     p = np.multiply(0.5 * np.sqrt(theta), phi * (1 - rho))
     c = p + 2 * psi
     vt = np.divide(np.multiply(v, (4 * np.multiply(p, c))), np.square((p + c)))
-    gridPenalization = np.linspace(np.log(2000/S0),
-                                   np.log(9000/S0),
+    gridPenalization = np.linspace(np.log(0.3),
+                                   np.log(3.0),
                                    num=200)
     
     #print()
@@ -454,11 +527,13 @@ def fit_svi_surface(implied_volatility=None,
                                     maturities[t], 
                                     gridPenalization,
                                     param_before,
-                                    param_after)
+                                    param_after,
+                                    None if t == 0 else maturities[t - 1],
+                                    None if t == (T-1) else maturities[t + 1])
         parameters[3, t] = parameters[2, t] + 2 * parameters[1, t]
         parameters[4, t] = np.divide(parameters[0, t] * 4 * parameters[2, t] * parameters[3, t] ,
                                      np.square(parameters[2, t] + parameters[3, t])) 
-        theta[t] = svi_jumpwing(np.array([0.0]), parameters[:, t], maturities[t])[0][0]
+        #theta[t] = svi_jumpwing(np.array([0.0]), parameters[:, t], maturities[t])[0][0]
 
     return parameters, theta, maturities, parametersSSVI
 
@@ -1100,6 +1175,7 @@ def finiteDifferenceSVI(xSet, sviEvalModel):
     gridMaturityLow = impliedVariance(sviEvalModel(xSetShifted), mat = xSetShifted["Maturity"].values)
     dT = pd.Series((gridMaturityUp - gridMaturityLow) / (2 * maturityStep), 
                    index = xSet.index)
+    xSetShifted["Maturity"] = xSetShifted["Maturity"]  + maturityStep
     
     numerator = (1 - np.divide(x, gridStrikeMid) * dK + 
                  0.25 * ( -0.25 - np.divide(1, gridStrikeMid) + 
@@ -1115,6 +1191,8 @@ def removeMaturityInvalidData(df):
     return df[df["Maturity"].isin(maturitiesToKeep)]
 
 ########################################################################################## Main Class
+
+
 class SSVIModel:
     def __init__(self, S0, bootstrap):
         #Hyperparameters
@@ -1140,6 +1218,10 @@ class SSVIModel:
                                                                                    filteredDf["logMoneyness"].values,
                                                                                    self.phi,
                                                                                    S0 = self.S0)
+        thetaSerie = monotonicInterpolation(self.theta, self.maturities)
+        self.theta = thetaSerie.values
+        self.maturities = thetaSerie.index.values
+        
         #dataSet = dataSet.copy()
         forward = np.exp(-filteredDf["logMoneyness"]) * filteredDf["Strike"]
         # round for float comparaison

@@ -14,6 +14,7 @@ from scipy.optimize import minimize
 from scipy import integrate
 import BS
 import bootstrapping
+import sys, os
 
 impliedVolColumn = BS.impliedVolColumn
 
@@ -96,16 +97,38 @@ def dminus(x, a,b,rho,m,sigma):
     return -x/vsqrt - 0.5*vsqrt  
     
 def densitySVI(x, a,b,rho,m,sigma):
-        
     dm = dminus(x, a,b,rho,m,sigma)
     return test_convexity(x, a,b,rho,m,sigma)*np.exp(-0.5*dm*dm)/np.sqrt(2.*np.pi*SVI(x, a,b,rho,m,sigma))
 
+def generateRandomStartValues(lb=None, ub=None):
+    # function to generate random initial values for the parameters
+    lb[~ np.isfinite(lb)] = -1000.0
+    ub[~ np.isfinite(ub)] = 1000.0
+    param0 = lb + np.random.rand(size(lb)) * (ub - lb)
+    return param0
+
+def isAdmissible(x, constraintList):
+    for constraint in constraintList :
+        if constraint["fun"](x) < 0.0 : 
+            return False
+    return True
+
+def generateAdmissibleRandomStartValues(lb=None, ub=None, constraintList = []):
+    nbIter = 0
+    x = generateRandomStartValues(lb=lb, ub=ub)
+    while not isAdmissible(x, constraintList):
+        x = generateRandomStartValues(lb=lb, ub=ub)
+        if nbIter >= 10000 :
+            raise Exception("Too many attempts")
+        nbIter += 1
+    return x
 
 def fit_svi(mkt_tot_variance=None,
             maturity=None,
             log_moneyness=None,
             initialGuess=None,
             S0=None,
+            lambdaList = None,
             param_slice_before = None):
     #############################################################################
     # Optimisation Function : min Loss function = ( SVI_model - Variance_Market )
@@ -134,32 +157,46 @@ def fit_svi(mkt_tot_variance=None,
     theta_init = initialGuess
     if initialGuess is None :
         theta_init = np.array([a_init, b_init, rho_init, m_init, sig_init])
+    if param_slice_before is not None :
+        theta_init = fit_svi(mkt_tot_variance=mkt_tot_variance,
+                             maturity=maturity,
+                             log_moneyness=log_moneyness,
+                             initialGuess=initialGuess,
+                             S0=S0,
+                             lambdaList = lambdaList,
+                             param_slice_before = None)
     
     #Constraint Function : g(k) > 0 
-    cons1 = {'type': 'ineq', 'fun': lambda x : constraint1(x , log_moneyness )}
-    cons2 = {'type': 'ineq', 'fun': lambda x : constraint2(x , log_moneyness )}
-    cons3 = {'type': 'ineq', 'fun': lambda x : constraint3(x , log_moneyness )}
-    cons4 = {'type': 'ineq', 'fun': lambda x : constraint4(x , log_moneyness )}
+    cons1 = {'type': 'ineq', 'fun': lambda x : lambdaList[0] * constraint1(x , log_moneyness )}
+    cons2 = {'type': 'ineq', 'fun': lambda x : lambdaList[1] * constraint2(x , log_moneyness )}
+    cons3 = {'type': 'ineq', 'fun': lambda x : lambdaList[2] * constraint3(x , log_moneyness )}
+    cons4 = {'type': 'ineq', 'fun': lambda x : lambdaList[3] * constraint4(x , log_moneyness )}
     
-    gridPenalization = np.linspace(np.log(0.2),
+    gridPenalization = np.linspace(np.log(0.3),
                                    np.log(3.0),
                                    num=200)
     
     constraintList = [cons1,cons2,cons3,cons4]
-    if False :#param_slice_before is not None :
+    if param_slice_before is not None :
         def calendarConstraint(theta, mkt_log_mon, param_slice_before):
             sliceBefore = SVI_two_arguments(param_slice_before, mkt_log_mon)
             sliceCurrent = SVI_two_arguments(theta, mkt_log_mon)
             epsilon = 1e-3
-            return np.sqrt(np.mean(np.square(np.clip(sliceBefore - sliceCurrent + epsilon, 0.0, None))))
-        lambdaCalendar = 1.0#10000.0
-        cons5 = {'type': 'ineq', 'fun': lambda x : lambdaCalendar * calendarConstraint(x, gridPenalization, param_slice_before)}
+            #return - np.sqrt(np.mean(np.square(np.clip(sliceBefore - sliceCurrent + epsilon, 0.0, None))))
+            return - np.mean(np.abs(np.clip(sliceBefore - sliceCurrent + epsilon, 0.0, None)))
+        cons5 = {'type': 'ineq', 'fun': lambda x : lambdaList[4] * calendarConstraint(x, gridPenalization, param_slice_before)}
         constraintList.append(cons5)
+    #constraintList = []
     
-    nbTry = 10
+    nbTry = 1#20
     parameters = np.zeros((size(theta_init), nbTry))
     funValue = np.zeros((nbTry, 1))
     for i in range(nbTry):
+        #param0 = generateRandomStartValues(lb=np.array(list(map(lambda x : x[0], SVI_param_bounds))), 
+        #                                   ub=np.array(list(map(lambda x : x[1], SVI_param_bounds))))
+        #param0 = generateAdmissibleRandomStartValues(lb=np.array(list(map(lambda x : x[0], SVI_param_bounds))), 
+        #                                             ub=np.array(list(map(lambda x : x[1], SVI_param_bounds))), 
+        #                                             constraintList=constraintList)
         result = minimize(lambda x : fct_least_squares(x, log_moneyness, mkt_tot_variance), 
                           theta_init,
                           method='SLSQP',
@@ -277,12 +314,7 @@ def interp1(x, v, xq, method, extrapolationMethod):
     
     return funInter(xq)
 
-def generateRandomStartValues(lb=None, ub=None):
-    # function to generate random intial values for the parameters
-    lb[~ np.isfinite(lb)] = -1000
-    ub[~ np.isfinite(ub)] = 1000
-    param0 = lb + np.random.rand(size(lb)) * (ub - lb)
-    return param0
+
 
 
 
@@ -403,7 +435,8 @@ def fit_svi_surface(implied_volatility=None,
                     maturity=None,
                     log_moneyness=None,
                     phifun=None,
-                    S0=None):
+                    S0=None,
+                    lambdaList=None):
     #fit_svi_surface calibrates the SVI surface to market data. First, the entire Surface SVI is fitted
     #to all log-moneyness-theta observations. Second, each slice is fitted again using the SSVI fit as
     #initial guess.
@@ -451,6 +484,7 @@ def fit_svi_surface(implied_volatility=None,
                                        log_moneyness=log_moneyness_t,
                                        initialGuess=None,
                                        S0=S0,
+                                       lambdaList = lambdaList,
                                        param_slice_before = None)
         else:
             parameters[:, t] = fit_svi(mkt_tot_variance=total_implied_variance_t,
@@ -458,7 +492,8 @@ def fit_svi_surface(implied_volatility=None,
                                        log_moneyness=log_moneyness_t,
                                        initialGuess=parameters[:, t-1],
                                        S0=S0,
-                                       param_slice_before = parameters[:, t-1])
+                                       lambdaList = lambdaList,
+                                       param_slice_before = None)#parameters[:, t-1])
         theta[t] = SVI_two_arguments(parameters[:, t], 0.0)
     
     return parameters, theta, maturities
@@ -733,6 +768,7 @@ class SSVIModelFerhati:
         self.maturities = None
         self.interestrate_theta = None
         self.forward_theta = None
+        self.lambdaList = [1.0, 1.0, 1.0, 1.0, 1.0]
 
     def fit(self, df):
         filteredDf = removeMaturityInvalidData(df)
@@ -740,13 +776,110 @@ class SSVIModelFerhati:
                                                                        filteredDf["Maturity"].values,
                                                                        filteredDf["logMoneyness"].values,
                                                                        self.phi,
-                                                                       S0 = self.S0)
+                                                                       S0 = self.S0, 
+                                                                       lambdaList = self.lambdaList)
         #dataSet = dataSet.copy()
         forward = np.exp(-filteredDf["logMoneyness"]) * filteredDf["Strike"]
         # round for float comparaison
         self.forward_theta = forward.groupby("Maturity").mean().values
         self.interestrate_theta = self.bootstrap.discountIntegral(self.maturities) / self.maturities
         return
+    
+    def assessArbitrageViolations(self, df):
+        nbViolationBut = 0
+        #logMoneynessGrid = df["logMoneyness"].unique()
+        logMoneynessGrid = np.linspace(np.log(0.3),
+                                       np.log(3.0),
+                                       num=200)
+        for m in range(self.parameters.shape[1]):
+            a, b, rho, m, sig = self.parameters[:,m]
+            g = test_convexity(logMoneynessGrid, a, b, rho, m, sig)
+            nbViolationBut += np.sum(g < 0.0)
+        
+        
+        slicePrevious = np.zeros_like(logMoneynessGrid)
+        nbViolationCal = 0
+        for m in range(self.parameters.shape[1]):
+            a, b, rho, m, sig = self.parameters[:,m]
+            sliceSVI = SVI(logMoneynessGrid, a, b, rho, m, sig)
+            nbViolationCal += np.sum((slicePrevious - sliceSVI) > 0.0)
+            slicePrevious = sliceSVI
+        return  nbViolationBut, nbViolationCal
+        
+    def automaticHyperparametersTuning(self, df):
+        #Block print
+        formerStdOut = sys.stdout
+        sys.stdout = open(os.devnull, 'w')
+        
+        def multiplyList(liste, factor):
+            return list(map(lambda y : factor * y, liste))
+        
+        #Iterate on a grid of values for butterfly arbitrage constraint
+        formerLambdaList = self.lambdaList
+        lambdaButterfly = [0.0, 1e-3, 1e-2, 1e-1, 1.0, 10.0, 1e2, 1e3, 1e4, 1e5]
+        numberOfarbitrageButterfly = []
+        rmseBut = []
+        firstArbitrageFreeLambda = None
+        for l in lambdaButterfly : 
+            self.lambdaList = multiplyList(formerLambdaList, l)
+            self.lambdaList[4] = 0.0
+            self.fit(df)
+            numberOfarbitrageButterfly.append(self.assessArbitrageViolations(df)[0]) 
+            
+            pred = self.eval(df)
+            rmseBut.append( mean_squared_error( pred, df[impliedVolColumn]))
+            if (firstArbitrageFreeLambda is None) and (numberOfarbitrageButterfly[-1]==0) :  
+                firstArbitrageFreeLambda = l
+        
+        #Iterate on a grid of values for calendar arbitrage constraint
+        lambdaCalendar = [0.0, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1.0, 10.0, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9]
+        numberOfArbitrageCalendar = []
+        rmseCal = []
+        for l in lambdaCalendar : 
+            self.lambdaList = multiplyList(formerLambdaList, l)
+            self.lambdaList[0] = firstArbitrageFreeLambda
+            self.lambdaList[1] = firstArbitrageFreeLambda
+            self.lambdaList[2] = firstArbitrageFreeLambda
+            self.lambdaList[3] = firstArbitrageFreeLambda
+            self.fit(df)
+            numberOfArbitrageCalendar.append(self.assessArbitrageViolations(df)[1]) 
+            
+            pred = self.eval(df)
+            rmseCal.append( mean_squared_error( pred, df[impliedVolColumn]))
+        
+        
+        self.lambdaList = formerLambdaList
+        #Activate print
+        #sys.stdout = formerStdOut
+        sys.stdout = formerStdOut
+        res = {"ButterflyArbitrage" : pd.Series(numberOfarbitrageButterfly, index = lambdaButterfly),
+               "CalendarArbitrage" : pd.Series(numberOfArbitrageCalendar, index = lambdaCalendar),
+               "ButterflyRMSE" : pd.Series(rmseBut, index = lambdaButterfly),
+               "CalendarRMSE" : pd.Series(rmseCal, index = lambdaCalendar)}
+        
+        plt.plot(res["ButterflyArbitrage"]) 
+        plt.title("Number of arbitrages")
+        plt.xscale('symlog')
+        plt.show()
+        
+        plt.plot(res["ButterflyRMSE"]) 
+        plt.title("RMSES")
+        plt.xscale('symlog')
+        plt.show()
+        
+        plt.plot(res["CalendarArbitrage"]) 
+        plt.title("Number of arbitrages")
+        plt.xscale('symlog')
+        plt.show()
+        
+        plt.plot(res["CalendarRMSE"]) 
+        plt.title("RMSES")
+        plt.xscale('symlog')
+        plt.show()
+        
+        #Dichotomy on parameter values for which we can assume monotonicity : the higher the penalization, the worst the accuracy and less arbitrage occured 
+        return res 
+        
 
     def eval(self, df):
         serie = interpolateGrid(df[df["Maturity"] > 0],
