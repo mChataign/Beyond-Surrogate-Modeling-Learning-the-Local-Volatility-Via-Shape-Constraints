@@ -347,9 +347,15 @@ def loadCBOTData(pathFolder, fileName, asOfDate):
     aDf["Converted Expiration Date"] = aDf["Expiration Date"].map(lambda x: formatDate(x))
 
     aDf = aDf[(aDf["IV.1"] < 1.0) & (aDf["IV"] < 1.0) & (aDf["IV.1"] > 0.001) & (aDf["IV"] > 0.001)]
+    
+    minMaturity = 0.050#15.0 / 365.25
+    maturity = (aDf["Converted Expiration Date"] - pd.Timestamp(asOfDate)).map(lambda x: x.days / 365.25).round(decimals=3)
+    aDf = aDf[maturity >= minMaturity]
+    
     closeDate = aDf["Converted Expiration Date"]
     strike = aDf["Strike"].round(decimals=3)
     maturity = (aDf["Converted Expiration Date"] - pd.Timestamp(asOfDate)).map(lambda x: x.days / 365.25).round(decimals=3)
+    
     logMaturity = np.log(maturity)
 
     closeCall = (aDf["Bid"] + aDf["Ask"]) / 2  # aDf["Last Sale"]

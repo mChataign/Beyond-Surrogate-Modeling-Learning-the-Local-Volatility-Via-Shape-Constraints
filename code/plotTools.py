@@ -956,14 +956,18 @@ def plot2dSmiles(SSVIResults,
                  NeuralResults, 
                  concatDf,
                  plotMarketData = True,
-                 nbObservationThreshold = 0):
+                 nbObservationThreshold = 0,
+                 maturityList = None):
 
     impVol = SSVIResults["ImpliedVol"] if SSVIResults is not None else None
     impVolGP = GPResults["ImpliedVol"] if GPResults is not None else None
     impVolNN = NeuralResults["ImpliedVol"] if NeuralResults is not None else None
     #Select maturities for which the smile has at least nbObservationThreshold points
-    maturitiesCount = concatDf.groupby(level = "Maturity").count()["Price"]
-    maturities = maturitiesCount[maturitiesCount >= nbObservationThreshold].index.get_level_values("Maturity").unique() #[1::2]
+    if maturityList is None :
+        maturitiesCount = concatDf.groupby(level = "Maturity").count()["Price"]
+        maturities = maturitiesCount[maturitiesCount >= nbObservationThreshold].index.get_level_values("Maturity").unique() #[1::2]
+    else :
+        maturities = concatDf["Maturity"][concatDf["Maturity"].isin(maturityList)].unique()
     #maturities = maturities.insert(0,maturitiesCount[maturitiesCount >= nbObservationThreshold].index.get_level_values("Maturity").unique()[0])
     nbMaturities = maturities.size
     
@@ -1054,14 +1058,18 @@ def plot2dPriceSmiles(SSVIResults,
                       NeuralResults,
                       concatDf,
                       plotMarketData = True,
-                      nbObservationThreshold = 0):
+                      nbObservationThreshold = 0,
+                      maturityList = None):
     priceVol = SSVIResults["Price"]
     priceVolGP = GPResults["Price"]
     priceVolNN = NeuralResults["Price"]
 
     #Select maturities for which the smile has at least nbObservationThreshold points
-    maturitiesCount = concatDf.groupby(level = "Maturity").count()["Price"]
-    maturities = maturitiesCount[maturitiesCount >= nbObservationThreshold].index.get_level_values("Maturity").unique() #[1::2]
+    if maturityList is None :
+        maturitiesCount = concatDf.groupby(level = "Maturity").count()["Price"]
+        maturities = maturitiesCount[maturitiesCount >= nbObservationThreshold].index.get_level_values("Maturity").unique() #[1::2]
+    else :
+        maturities = concatDf["Maturity"][concatDf["Maturity"].isin(maturityList)].unique()
     #maturities = maturities.insert(0,maturitiesCount[maturitiesCount >= nbObservationThreshold].index.get_level_values("Maturity").unique()[0])
     nbMaturities = maturities.size
     
@@ -1128,14 +1136,19 @@ def plot2dSmilesTotalVariance(SSVIResults,
                               NeuralResults, 
                               concatDf,
                               plotMarketData = True,
-                              nbObservationThreshold = 0):
+                              nbObservationThreshold = 0,
+                              maturityList = None):
     impliedTotVarianceFunction = lambda x : x * x.index.get_level_values("Maturity")
     impVar = impliedTotVarianceFunction(SSVIResults["ImpliedVol"]) if SSVIResults is not None else None
     impVarGP = impliedTotVarianceFunction(GPResults["ImpliedVol"]) if GPResults is not None else None
     impVarNN = impliedTotVarianceFunction(NeuralResults["ImpliedVol"]) if NeuralResults is not None else None
+    
     #Select maturities for which the smile has at least nbObservationThreshold points
-    maturitiesCount = concatDf.groupby(level = "Maturity").count()["Price"]
-    maturities = maturitiesCount[maturitiesCount >= nbObservationThreshold].index.get_level_values("Maturity").unique() #[1::2]
+    if maturityList is None :
+        maturitiesCount = concatDf.groupby(level = "Maturity").count()["Price"]
+        maturities = maturitiesCount[maturitiesCount >= nbObservationThreshold].index.get_level_values("Maturity").unique() #[1::2]
+    else :
+        maturities = concatDf["Maturity"][concatDf["Maturity"].isin(maturityList)].unique()
     #maturities = maturities.insert(0,maturitiesCount[maturitiesCount >= nbObservationThreshold].index.get_level_values("Maturity").unique()[0])
     nbMaturities = maturities.size
     
@@ -1144,7 +1157,7 @@ def plot2dSmilesTotalVariance(SSVIResults,
     heightPlot = math.ceil(nbMaturities/widthPlot)#int(np.sqrt(nbMaturities)) +  1 #2 
     nbFrame = heightPlot * widthPlot 
 
-    fig, axs = plt.subplots(heightPlot, widthPlot,figsize=(30,30))
+    fig, axs = plt.subplots(heightPlot, widthPlot,figsize=(40,20))
     fig.subplots_adjust( wspace=0.2, hspace=0.4)
     #fig.suptitle('Implied volatility calibrated', fontsize=20)
     plotList = []
@@ -1182,7 +1195,8 @@ def plot2dSmilesTotalVariance(SSVIResults,
       #plotList.append(axs[x,y].plot(curveBid.index.get_level_values("Strike"), curveBid.values, "b+", label = "Bid"))
       #axs[x,y].fill_between(curveAsk.index.get_level_values("Strike"), curveBid.values, curveAsk.values, alpha = 0.3)
       axs[x,y].fill_between(logMoneyness, curveBid.values, curveAsk.values, alpha = 0.3)
-      axs[x,y].set_title('Maturity : ' + str(round(maturities[k], 4)))
+      axs[x,y].tick_params(labelsize=26)
+      axs[x,y].set_title('Maturity : ' + str(round(maturities[k], 4)), fontsize=40)
       axs[x,y].set_facecolor('white')
       for spine in axs[x,y].spines.values():
         spine.set_visible(True)

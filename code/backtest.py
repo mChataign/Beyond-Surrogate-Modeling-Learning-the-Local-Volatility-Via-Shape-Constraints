@@ -15,16 +15,19 @@ def interpolatedMCLocalVolatility(localVol,
     return pd.Series(coordinates, index = pd.MultiIndex.from_arrays([strikes, maturities],
                                                                     names=('Strike', 'Maturity')))
     
+
 def MonteCarloPricer(S0,
                      Strike, 
                      Maturity, 
                      bootstrap,
-                     nbPaths, 
+                     randomIncrement, 
                      nbTimeStep, 
                      volLocaleFunction):
-  time_grid = np.linspace(0, Maturity, int(nbTimeStep + 1))
-  timeStep = Maturity / nbTimeStep
-  gaussianNoise = np.random.normal(scale = np.sqrt(timeStep), size=(nbTimeStep, nbPaths))
+  singleMaturity = np.unique(Maturity)[0]
+  time_grid = np.linspace(0, singleMaturity, int(nbTimeStep + 1))
+  timeStep = singleMaturity / nbTimeStep
+  gaussianNoise = np.sqrt(timeStep) * randomIncrement
+  nbPaths = gaussianNoise.shape[1]
 
   logReturn = np.zeros((nbTimeStep + 1, nbPaths))
   logReturn[0,:] = 0
@@ -39,7 +42,8 @@ def MonteCarloPricer(S0,
       drift = np.ones(nbPaths) * (mu - np.square(volLocale) / 2.0) 
       logReturn[i + 1, :] = logReturn[i,:] + drift * timeStep + gaussianNoise[i,:] * volLocale
   SFinal = S0 * np.exp(logReturn[-1, :])
-  return (np.mean(np.maximum(Strike - SFinal, 0)), np.std(np.maximum(Strike - SFinal, 0)))
+  MCresult = lambda x : (np.mean(np.maximum(x - SFinal, 0)), np.std(np.maximum(x - SFinal, 0)))
+  return Strike.apply(MCresult)
 
 def MonteCarloPricerVectorized(S, 
                                dataSet,
@@ -47,12 +51,13 @@ def MonteCarloPricerVectorized(S,
                                nbPaths, 
                                nbTimeStep, 
                                volLocaleFunction):
+  gaussianNoise = np.random.normal(scale = 1.0, size=(nbTimeStep, nbPaths))
   func = lambda x : MonteCarloPricer(S, x["Strike"], x["Maturity"], 
                                      bootstrap,
-                                     nbPaths, nbTimeStep, 
+                                     gaussianNoise, nbTimeStep, 
                                      volLocaleFunction)
-  res = dataSet.apply(func, axis=1)
-  priceMC = res.map(lambda x : x[0]) * np.exp(-bootstrap.discountIntegral(dataSet.index.get_level_values("Maturity")))
+  res = dataSet.groupby(level="Maturity", as_index = False).apply(func).droplevel(0).sort_index()
+  priceMC = res.map(lambda x : x[0]) * np.exp(-bootstrap.discountIntegral(res.index.get_level_values("Maturity")))
   stdMC = res.map(lambda x : x[1])
   return pd.DataFrame(np.vstack([priceMC.values, stdMC.values]).T,
                       columns=["Price", "stdPrice"],

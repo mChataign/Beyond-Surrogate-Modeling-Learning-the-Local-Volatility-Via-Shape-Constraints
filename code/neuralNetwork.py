@@ -1326,11 +1326,12 @@ def create_train_model_gatheral(NNFactory,
 
         vol_pred_tensor_sc = vol_pred_tensor
         unscaledMaturityTensor = (Maturity * scaleTensorMaturity + maturityMinTensor)
-        maturityOriginal = tf.exp(unscaledMaturityTensor) if useLogMaturity else  unscaledMaturityTensor
+        maturityOriginal = tf.exp(unscaledMaturityTensor) if useLogMaturity else unscaledMaturityTensor
         TensorList[0] = tf.square(vol_pred_tensor_sc) * maturityOriginal
 
         # Define a loss function
         pointwiseError = tf.pow(tf.reduce_mean(tf.pow((vol_pred_tensor_sc - y)/y , holderExponent) * weighting), 1.0 / holderExponent)
+        #pointwiseError = tf.pow(tf.reduce_mean(tf.pow((vol_pred_tensor_sc - y) , holderExponent) ), 1.0 / holderExponent) * tf.reduce_mean(weighting)
         errors = tf.add_n([pointwiseError] + penalizationList1) #tf.add_n([pointwiseError] + penalizationList)
         loss = tf.log(tf.reduce_mean(errors))
         
@@ -1410,10 +1411,12 @@ def create_train_model_gatheral(NNFactory,
         #lossResult = sess.run(pointwiseError, feed_dict=epochFeedDict)
 
         # miniBatchList = selectMiniBatchWithoutReplacement(dataSet, batch_size)
-        for k in range(len(miniBatchList)):
-            batchFeedDict = createFeedDict(miniBatchList[k])
-            sess.run(train, feed_dict=batchFeedDict)
-
+        if len(miniBatchList) > 1 :
+            for k in range(len(miniBatchList)):
+                batchFeedDict = createFeedDict(miniBatchList[k])
+                sess.run(train, feed_dict=batchFeedDict)
+        else : 
+            sess.run(train, feed_dict=epochFeedDict)
         loss_serie.append(sess.run(loss, feed_dict=epochFeedDict))
 
         if (len(loss_serie) < 2) or (loss_serie[-1] <= min(loss_serie)):
@@ -1628,6 +1631,7 @@ def create_eval_model_gatheral(NNFactory,
 
     # Define a loss function
     pointwiseError = tf.pow(tf.reduce_mean(tf.pow((vol_pred_tensor_sc - y)/y , holderExponent) * weighting), 1.0 / holderExponent)
+    #pointwiseError = tf.pow(tf.reduce_mean(tf.pow((vol_pred_tensor_sc - y) , holderExponent) ), 1.0 / holderExponent) * tf.reduce_mean(weighting)
     errors = tf.add_n([pointwiseError] + penalizationList1) #tf.add_n([pointwiseError] + penalizationList)
     loss = tf.log(tf.reduce_mean(errors))
     
@@ -1832,7 +1836,8 @@ def evalVolLocaleGatheral(NNFactory,
     TensorList[0] = tf.square(vol_pred_tensor_sc) * maturityOriginal
 
     # Define a loss function
-    pointwiseError =tf.pow(tf.reduce_mean(tf.pow((vol_pred_tensor_sc - y)/y , holderExponent) * weighting), 1.0 / holderExponent)
+    pointwiseError = tf.pow(tf.reduce_mean(tf.pow((vol_pred_tensor_sc - y)/y , holderExponent) * weighting), 1.0 / holderExponent)
+    #pointwiseError = tf.pow(tf.reduce_mean(tf.pow((vol_pred_tensor_sc - y) , holderExponent) ), 1.0 / holderExponent) * tf.reduce_mean(weighting)
     errors = tf.add_n([pointwiseError] + penalizationList1)
     loss = tf.log(tf.reduce_mean(errors))
     
@@ -1944,7 +1949,7 @@ def rawDupireFormulaGatheral(totalVarianceTensor,
   gatheralDenominator = oneConstant - dMoneynessFactor * (dMoneyness) + dMoneynessSquaredFactor * tf.square(dMoneyness) + gMoneynessFactor *  gMoneyness
   
   if useLogMaturity :
-    dT = tf.reshape(tf.gradients(totalVarianceTensor,scaledMaturityTensor,name="dT")[0], shape=[batchSize,-1]) / scaleTensorMaturity * tf.exp(maturity)
+    dT = tf.reshape(tf.gradients(totalVarianceTensor,scaledMaturityTensor,name="dT")[0], shape=[batchSize,-1]) / scaleTensorMaturity / tf.exp(maturity)
   else :
     dT = tf.reshape(tf.gradients(totalVarianceTensor,scaledMaturityTensor,name="dT")[0], shape=[batchSize,-1]) / scaleTensorMaturity
 
