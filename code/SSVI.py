@@ -92,34 +92,18 @@ def monotonicInterpolation(theta, maturities):
     previousMax = 0
     monotonicCurve = []
     
-    thetaSeries = pd.Series(theta, index = maturities)
-    if thetaSeries.isnull().values.any() : # Interpolate missing values and then create an increasing curve from monotonic curve
-        thetaIncreasing = thetaSeries.dropna() 
-        filledCurve = []
-        for i in range(theta.size):
-            if np.isnan(theta[i]) : 
-                filledCurve.append(interp1(thetaIncreasing.index, thetaIncreasing.values, maturities[i], 'linear', 'extrapolate'))
-            else : 
-                filledCurve.append(thetaIncreasing.loc[maturities[i]])
-        monotonicCurve = monotonicInterpolation(np.array(filledCurve), maturities).values
-        
-    else :# Interpolate each value which breaks increase as the barycenter of the two closest point ensuring monotonicity
-        for i in range(theta.size):
-            if (previousMax <= theta[i]) :
-                previousMaxIdx = i
-                previousMax = theta[i]
-            else : 
-                alpha1 = None
-                for j in range(i, theta.size):
-                    if (previousMax <= theta[j]) :
-                        denominator = (maturities[j] - maturities[previousMaxIdx])
-                        alpha1 = (maturities[i] - maturities[previousMaxIdx]) / denominator
-                        alpha2 = (maturities[j] - maturities[i]) / denominator
-                        previousMax = (alpha1 * theta[j] + alpha2 * theta[previousMaxIdx])
-                        break
-                previousMaxIdx = i
-            monotonicCurve.append(previousMax)
-    return pd.Series(monotonicCurve, index = maturities)
+    #Select observations which preserve monotonicity
+    originalCurve = pd.Series(theta, index = maturities).sort_index()
+    prevMax = 0.0
+    increasingCurve = []
+    for k in originalCurve.dropna().index :
+        if originalCurve[k] >= prevMax :
+             prevMax = originalCurve[k]
+        increasingCurve.append(prevMax)
+    
+    for m in maturities :
+        monotonicCurve.append(interp1(originalCurve.dropna().index.values, np.array(increasingCurve), m, 'linear', 'extrapolate'))
+    return pd.Series(np.ravel(monotonicCurve), index = maturities)
 #####################################################################################    First SSVI calibration
 def fit_ssvi(phifun=None, log_moneyness=None, theta_expanded=None, total_implied_variance=None, tau_expanded = None):
     lb = np.array([-1, 0])

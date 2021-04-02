@@ -348,6 +348,12 @@ def loadCBOTData(pathFolder, fileName, asOfDate):
 
     aDf = aDf[(aDf["IV.1"] < 1.0) & (aDf["IV"] < 1.0) & (aDf["IV.1"] > 0.001) & (aDf["IV"] > 0.001)]
     
+    #Remove observation with high bid-ask spread, these observations are assumed illiquid
+    #closeCall = (aDf["Bid"] + aDf["Ask"]) / 2 
+    #closePut = (aDf["Bid.1"] + aDf["Ask.1"]) / 2 
+    #aDf = aDf[( ((aDf["Bid"] - aDf["Ask"]) / closeCall).abs() <= 0.05 ) & (((aDf["Bid.1"] - aDf["Ask.1"]) / closePut).abs() <= 0.05)]
+    
+    #Remove short maturities
     minMaturity = 0.050#15.0 / 365.25
     maturity = (aDf["Converted Expiration Date"] - pd.Timestamp(asOfDate)).map(lambda x: x.days / 365.25).round(decimals=3)
     aDf = aDf[maturity >= minMaturity]
@@ -407,11 +413,11 @@ def loadCBOTData(pathFolder, fileName, asOfDate):
     #                                                closeCall,
     #                                                closePut,
     #                                                maturity)
-
+    
     rawData = pd.concat([callDf, PutDf])
     rawData = rawData[rawData["OptionType"]==2]
-
-    filteredData = removeDataViolatingStaticArbitrage(rawData.reset_index())
+    
+    filteredData = rawData.reset_index() #filteredData = removeDataViolatingStaticArbitrage(rawData.reset_index())
     rawData = removeDuplicateIndex(filteredData.set_index(["Strike", "Maturity"]))
     impvolAsk = BS.vectorizedImpliedVolatilityCalibration(S0,
                                                           bootstrap,

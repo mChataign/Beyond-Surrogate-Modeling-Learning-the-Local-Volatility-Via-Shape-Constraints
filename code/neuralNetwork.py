@@ -29,6 +29,7 @@ def resetTensorflow():
     tf.reset_default_graph()
     layerFactory.clear()
     return
+
 # Format result from training step
 def evalAndFormatResult(price, loss, dataSet, scaler):
     scaledPredPrice = pd.Series(price.flatten(), index=dataSet.index).rename("Price")
@@ -93,6 +94,58 @@ def selectMiniBatchWithReplacement(dataSet, batch_size):
         idx = np.random.randint(nbObs, size = batch_size)
         xBatchList.append(dataSet.iloc[idx,:])
     return xBatchList
+
+
+# Soft constraints for strike convexity and strike/maturity monotonicity
+def arbitragePenaltiesPrice(priceTensor, strikeTensor, maturityTensor, scaleTensor, weighting, hyperparameters):
+    dK = tf.gradients(priceTensor, strikeTensor, name="dK")
+    hK = tf.gradients(dK[0], strikeTensor, name="hK") / tf.square(scaleTensor)
+    theta = tf.gradients(priceTensor, maturityTensor, name="dT")
+
+    lambdas = hyperparameters["lambdaSoft"] * tf.reduce_mean(weighting)
+    lowerBoundTheta = tf.constant(hyperparameters["lowerBoundTheta"])
+    lowerBoundGamma = tf.constant(hyperparameters["lowerBoundGamma"])
+    grad_penalty = lambdas * tf.reduce_mean(tf.nn.relu(-theta[0] + lowerBoundTheta))
+    hessian_penalty = lambdas * hyperparameters["lowerBoundGamma"] * tf.reduce_mean(
+        tf.nn.relu(-hK[0] + lowerBoundGamma))
+
+    return [grad_penalty, hessian_penalty]
+
+#Dupire formula from exact derivative computation
+def dupireFormula(HessianStrike,
+                  GradMaturity,
+                  Strike,
+                  scaleTensor,
+                  strikeMinTensor,
+                  IsTraining=True):
+  twoConstant = tf.constant(2.0)
+  dupireVar = tf.math.divide(tf.math.divide(tf.math.scalar_mul(twoConstant,GradMaturity),
+                                            HessianStrike),
+                             tf.square(Strike + strikeMinTensor / scaleTensor))
+  #Initial weights of neural network can be random which lead to negative dupireVar
+  dupireVolTensor = tf.sqrt(dupireVar)
+  return dupireVolTensor, dupireVar
+
+#Dupire formula with derivative obtained from native tensorflow algorithmic differentiation
+def rawDupireFormula(priceTensor,
+                     adjustedStrikeTensor,
+                     maturityTensor,
+                     scaleTensor,
+                     strikeMinTensor,
+                     IsTraining=True):
+  batchSize = tf.shape(adjustedStrikeTensor)[0]
+  dK = tf.reshape(tf.gradients(priceTensor, adjustedStrikeTensor, name="dK")[0], shape=[batchSize,-1])
+  hK = tf.reshape(tf.gradients(dK, adjustedStrikeTensor, name="hK")[0], shape=[batchSize,-1])
+  dupireDenominator = tf.square(adjustedStrikeTensor + strikeMinTensor / scaleTensor) * hK
+
+  dT = tf.reshape(tf.gradients(priceTensor,maturityTensor,name="dT")[0], shape=[batchSize,-1])
+
+  #Initial weights of neural network can be random which lead to negative dupireVar
+  dupireVar = 2 * dT / dupireDenominator
+  dupireVol = tf.sqrt(dupireVar)
+  return  dupireVol, dT, hK / tf.square(scaleTensor), dupireVar
+
+
 
 
 # Train neural network with a decreasing rule for learning rate
@@ -595,55 +648,6 @@ def evalVolLocale(NNFactory,
     return pd.Series(evalList[1].flatten(),
                      index=pd.MultiIndex.from_arrays([strikes, maturities], names=('Strike', 'Maturity')))
 
-# Soft constraints for strike convexity and strike/maturity monotonicity
-def arbitragePenaltiesPrice(priceTensor, strikeTensor, maturityTensor, scaleTensor, weighting, hyperparameters):
-    dK = tf.gradients(priceTensor, strikeTensor, name="dK")
-    hK = tf.gradients(dK[0], strikeTensor, name="hK") / tf.square(scaleTensor)
-    theta = tf.gradients(priceTensor, maturityTensor, name="dT")
-
-    lambdas = hyperparameters["lambdaSoft"] * tf.reduce_mean(weighting)
-    lowerBoundTheta = tf.constant(hyperparameters["lowerBoundTheta"])
-    lowerBoundGamma = tf.constant(hyperparameters["lowerBoundGamma"])
-    grad_penalty = lambdas * tf.reduce_mean(tf.nn.relu(-theta[0] + lowerBoundTheta))
-    hessian_penalty = lambdas * hyperparameters["lowerBoundGamma"] * tf.reduce_mean(
-        tf.nn.relu(-hK[0] + lowerBoundGamma))
-
-    return [grad_penalty, hessian_penalty]
-
-#Dupire formula from exact derivative computation
-def dupireFormula(HessianStrike,
-                  GradMaturity,
-                  Strike,
-                  scaleTensor,
-                  strikeMinTensor,
-                  IsTraining=True):
-  twoConstant = tf.constant(2.0)
-  dupireVar = tf.math.divide(tf.math.divide(tf.math.scalar_mul(twoConstant,GradMaturity),
-                                            HessianStrike),
-                             tf.square(Strike + strikeMinTensor / scaleTensor))
-  #Initial weights of neural network can be random which lead to negative dupireVar
-  dupireVolTensor = tf.sqrt(dupireVar)
-  return dupireVolTensor, dupireVar
-
-#Dupire formula with derivative obtained from native tensorflow algorithmic differentiation
-def rawDupireFormula(priceTensor,
-                     adjustedStrikeTensor,
-                     maturityTensor,
-                     scaleTensor,
-                     strikeMinTensor,
-                     IsTraining=True):
-  batchSize = tf.shape(adjustedStrikeTensor)[0]
-  dK = tf.reshape(tf.gradients(priceTensor, adjustedStrikeTensor, name="dK")[0], shape=[batchSize,-1])
-  hK = tf.reshape(tf.gradients(dK, adjustedStrikeTensor, name="hK")[0], shape=[batchSize,-1])
-  dupireDenominator = tf.square(adjustedStrikeTensor + strikeMinTensor / scaleTensor) * hK
-
-  dT = tf.reshape(tf.gradients(priceTensor,maturityTensor,name="dT")[0], shape=[batchSize,-1])
-
-  #Initial weights of neural network can be random which lead to negative dupireVar
-  dupireVar = 2 * dT / dupireDenominator
-  dupireVol = tf.sqrt(dupireVar)
-  return  dupireVol, dT, hK / tf.square(scaleTensor), dupireVar
-
 
 
 ############################################################################# Tools function for Neural network architecture
@@ -993,13 +997,6 @@ def NNArchitectureConstrainedRawDupire(n_units,
 
 ############################################################################# Soft constraint
 
-# Soft constraints for strike convexity and strike/maturity monotonicity
-def arbitragePenalties(dT, gatheralDenominator, weighting, hyperparameters):
-    lambdas = 1.0 * tf.reduce_mean(weighting)
-    lowerBoundTheta = tf.constant(hyperparameters["lowerBoundTheta"])
-    lowerBoundGamma = tf.constant(hyperparameters["lowerBoundGamma"])
-    calendar_penalty = lambdas * hyperparameters["lambdaSoft"] * tf.reduce_mean(tf.nn.relu(-dT + lowerBoundTheta))
-    butterfly_penalty = lambdas * hyperparameters["lambdaGamma"] * tf.reduce_mean( tf.nn.relu(-gatheralDenominator + lowerBoundGamma) )
 
 def NNArchitectureVanillaSoftDupire(n_units, strikeTensor,
                                     maturityTensor,
@@ -1182,7 +1179,45 @@ def NNArchitectureHardConstrainedDupire(n_units, strikeTensor,
 
 
 
-################################################################### Working on implied volatilities
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+####################################################################################################################### Working on implied volatilities
+#######################################################################################################################
+
+
+# Soft constraints for calendar/butterfly arbitrage constraints
+def arbitragePenalties(dT, gatheralDenominator, weighting, hyperparameters):
+    lambdas = 1.0 * tf.reduce_mean(weighting)
+    lowerBoundTheta = tf.constant(hyperparameters["lowerBoundTheta"])
+    lowerBoundGamma = tf.constant(hyperparameters["lowerBoundGamma"])
+    calendar_penalty = lambdas * hyperparameters["lambdaSoft"] * tf.reduce_mean(tf.nn.relu(-dT + lowerBoundTheta))
+    butterfly_penalty = lambdas * hyperparameters["lambdaGamma"] * tf.reduce_mean( tf.nn.relu(-gatheralDenominator + lowerBoundGamma) )
+
 def computeWeighting(batch, scaler):
     def secondMin(row):
         return row.sort_values().iloc[1]
@@ -2066,95 +2101,30 @@ def NNArchitectureVanillaSoftGatheral(n_units,
     return out, [out, gatheralVol, theta, gatheralDenominator, gatheralVar], [grad_penalty, hessian_penalty], evalAndFormatDupireResult
 
 
-################################################################### Dugas neural network
-def convexDugasLayer(n_units, tensor, isTraining, name):
-    with tf.name_scope(name):
-        nbInputFeatures = tensor.get_shape().as_list()[1]
-        bias = tf.Variable(initial_value=tf.zeros_initializer()([n_units], dtype=tf.float32),
-                           trainable=True,
-                           shape=[n_units],
-                           dtype=tf.float32,
-                           name=name + "Bias")
-        weights = tf.exp(tf.Variable(
-            initial_value=tf.keras.initializers.glorot_normal()([nbInputFeatures, n_units], dtype=tf.float32),
-            trainable=True,
-            shape=[nbInputFeatures, n_units],
-            dtype=tf.float32,
-            name=name + "Weights"))
-        layer = tf.matmul(tensor, weights) + bias
-        return K.softplus(layer)
 
 
-def monotonicDugasLayer(n_units, tensor, isTraining, name):
-    with tf.name_scope(name):
-        nbInputFeatures = tensor.get_shape().as_list()[1]
-        bias = tf.Variable(initial_value=tf.zeros_initializer()([n_units], dtype=tf.float32),
-                           trainable=True,
-                           shape=[n_units],
-                           dtype=tf.float32,
-                           name=name + "Bias")
-        weights = tf.exp(tf.Variable(
-            initial_value=tf.keras.initializers.glorot_normal()([nbInputFeatures, n_units], dtype=tf.float32),
-            trainable=True,
-            shape=[nbInputFeatures, n_units],
-            dtype=tf.float32,
-            name=name + "Weights"))
-        layer = tf.matmul(tensor, weights) + bias
-        return K.sigmoid(layer)
 
 
-def convexDugasOutputLayer(tensor, isTraining, name):
-    with tf.name_scope(name):
-        nbInputFeatures = tensor.get_shape().as_list()[1]
-        bias = tf.exp(tf.Variable(initial_value=tf.zeros_initializer()([], dtype=tf.float32),
-                                  shape=[],
-                                  trainable=True,
-                                  dtype=tf.float32,
-                                  name=name + "Bias"))
-        weights = tf.exp(
-            tf.Variable(initial_value=tf.keras.initializers.glorot_normal()([nbInputFeatures, 1], dtype=tf.float32),
-                        shape=[nbInputFeatures, 1],
-                        trainable=True,
-                        dtype=tf.float32,
-                        name=name + "Weights"))
-        layer = tf.matmul(tensor, weights) + bias
-        return layer
 
 
-def NNArchitectureHardConstrainedDugas(n_units, strikeTensor,
-                                       maturityTensor,
-                                       scaleTensor,
-                                       strikeMinTensor,
-                                       weighting,
-                                       hyperparameters,
-                                       scaler,
-                                       IsTraining=True):
-    # First layer
-    hidden1S = convexDugasLayer(n_units=n_units,
-                                tensor=strikeTensor,
-                                isTraining=IsTraining,
-                                name="Hidden1S")
 
-    hidden1M = monotonicDugasLayer(n_units=n_units,
-                                   tensor=maturityTensor,
-                                   isTraining=IsTraining,
-                                   name="Hidden1M")
 
-    hidden1 = hidden1S * hidden1M
 
-    # Second layer and output layer
-    out = convexDugasOutputLayer(tensor=hidden1,
-                                 isTraining=IsTraining,
-                                 name="Output")
-    # Local volatility
-    dupireVol, theta, hK, dupireVar = rawDupireFormula(out, strikeTensor,
-                                                       maturityTensor,
-                                                       scaleTensor,
-                                                       strikeMinTensor,
-                                                       IsTraining=IsTraining)
 
-    return out, [out, dupireVol, theta, hK, dupireVar], [], evalAndFormatDupireResult
 
+
+
+
+
+
+
+
+
+
+
+
+
+####################################################################################### Automatic Hyperparameter selection
 
 def selectHyperparameters(hyperparameters, parameterOfInterest, modelFactory,
                           modelName, activateDupireReg, scaledDataSet,
