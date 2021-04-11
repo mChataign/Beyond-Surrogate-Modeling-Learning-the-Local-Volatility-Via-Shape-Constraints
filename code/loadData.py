@@ -7,8 +7,10 @@ from datetime import *
 from io import StringIO
 import bootstrapping
 import BS
+import os
 import dataSetConstruction
 import plotTools
+import backtest
 
 
 
@@ -786,3 +788,110 @@ def loadGP(pathToData, fileName, dataSet, S0, bootstrap, threshold = None):
     
     return putGP, ImpVolPut
 
+
+
+
+def loadResults(filename):
+    if not os.path.isfile("./Results/" + filename):
+        print ("File "+ "./Results/" + filename + " does not exist.")
+    
+    
+    extension = filename.split(".")
+    if extension[-1]=="csv":
+        df = pd.read_csv("./Results/" + filename) 
+    elif extension[-1]=="xlsx":
+        df = pd.read_excel("./Results/" + filename,
+                           header=0,
+                           sheet_name="Sheet1")
+        if os.path.isfile("./Results/" + extension[0] + "_100_sample_paths.xlsx"):
+            #Load quantiles
+            dfQuantile = pd.read_excel("./Results/" + extension[0] + "_100_sample_paths.xlsx",
+                                       header=0,
+                                       sheet_name="Sheet1")
+            columnFilter = [("all" in c) for c in dfQuantile.columns]
+            dfQuantile = dfQuantile.transpose()[columnFilter].transpose()
+            df["HullMax"] = dfQuantile.max(axis = 1)
+            df["HullMin"] = dfQuantile.min(axis = 1)
+        
+    if "K" in df.columns :
+        df = df.rename(columns={"K":"Strike", "T":"Maturity"})
+    df = df.set_index(["Strike", "Maturity"])
+    df.index = roundMultiIndex(df.index).rename(["Strike", "Maturity"])
+    
+    return df.sort_index() 
+
+def formatGPDatasets(dfOrig, refDataset, locVolGrid, S0, bootstrap):
+    df = dfOrig
+    df.index = refDataset.sort_index().index
+    df = df.rename(columns={"GP_Put_price_MAP":"Price"})
+    df["LocalVolatility"] = backtest.interpolatedMCLocalVolatility(locVolGrid, 
+                                                                   df.index.get_level_values("Strike"),
+                                                                   df.index.get_level_values("Maturity"))
+    
+    ImpVol = BS.vectorizedImpliedVolatilityCalibration(S0, 
+                                                       bootstrap, 
+                                                       refDataset["Maturity"], 
+                                                       refDataset["Strike"], 
+                                                       refDataset["OptionType"], 
+                                                       df["Price"],
+                                                       removeNaN = False)
+    ImpVol = pd.Series(ImpVol, index = refDataset.index).sort_index()
+    df["ImpliedVol"] = ImpVol
+    
+    ImpVol5Pct = BS.vectorizedImpliedVolatilityCalibration(S0, bootstrap, 
+                                                           refDataset["Maturity"], 
+                                                           refDataset["Strike"], 
+                                                           refDataset["OptionType"], 
+                                                           df["GP_Put_price_5_percent_quantile"],
+                                                           removeNaN = False)
+    ImpVol5Pct = pd.Series(ImpVol5Pct, index = refDataset.index).sort_index()
+    df["ImpliedVol5Pct"] = ImpVol5Pct
+    
+    ImpVol95Pct = BS.vectorizedImpliedVolatilityCalibration(S0, bootstrap, 
+                                                           refDataset["Maturity"], 
+                                                           refDataset["Strike"], 
+                                                           refDataset["OptionType"], 
+                                                           df["GP_Put_price_95_percent_quantile"],
+                                                           removeNaN = False)
+    ImpVol95Pct = pd.Series(ImpVol95Pct, index = refDataset.index).sort_index()
+    df["ImpliedVol95Pct"] = ImpVol95Pct
+    
+    
+    ImpVol1Pct = BS.vectorizedImpliedVolatilityCalibration(S0, bootstrap, 
+                                                           refDataset["Maturity"], 
+                                                           refDataset["Strike"], 
+                                                           refDataset["OptionType"], 
+                                                           df["GP_Put_price_1_percent_quantile"],
+                                                           removeNaN = False)
+    ImpVol1Pct = pd.Series(ImpVol1Pct, index = refDataset.index).sort_index()
+    df["ImpliedVol1Pct"] = ImpVol1Pct
+    
+    ImpVol99Pct = BS.vectorizedImpliedVolatilityCalibration(S0, bootstrap, 
+                                                            refDataset["Maturity"], 
+                                                            refDataset["Strike"], 
+                                                            refDataset["OptionType"], 
+                                                            df["GP_Put_price_99_percent_quantile"],
+                                                            removeNaN = False)
+    ImpVol99Pct = pd.Series(ImpVol99Pct, index = refDataset.index).sort_index()
+    df["ImpliedVol99Pct"] = ImpVol99Pct
+    
+    if "HullMax" in df.columns :
+        ImpVolMax = BS.vectorizedImpliedVolatilityCalibration(S0, bootstrap, 
+                                                              refDataset["Maturity"], 
+                                                              refDataset["Strike"], 
+                                                              refDataset["OptionType"], 
+                                                              df["HullMax"],
+                                                              removeNaN = False)
+        ImpVolMax = pd.Series(ImpVolMax, index = refDataset.index).sort_index()
+        df["ImpliedVolMax"] = ImpVolMax
+    
+    if "HullMin" in df.columns :
+        ImpVolMin = BS.vectorizedImpliedVolatilityCalibration(S0, bootstrap, 
+                                                              refDataset["Maturity"], 
+                                                              refDataset["Strike"], 
+                                                              refDataset["OptionType"], 
+                                                              df["HullMin"],
+                                                              removeNaN = False)
+        ImpVolMin = pd.Series(ImpVolMin, index = refDataset.index).sort_index()
+        df["ImpliedVolMin"] = ImpVolMin
+    return df

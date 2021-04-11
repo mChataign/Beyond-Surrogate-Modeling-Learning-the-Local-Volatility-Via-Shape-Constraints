@@ -6,24 +6,28 @@ from mpl_toolkits import mplot3d
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
 import matplotlib.ticker as mtick
+import math
 import BS
 import bootstrapping
-import math
+import backtest
 
 impliedVolColumn = BS.impliedVolColumn
+factorSize = 0.5
+plt.rcParams['figure.dpi'] = 50
 
 ######################################################################### Training loss
 
 #Plot loss for each epoch 
 def plotEpochLoss(lossSerie):
-  fig = plt.figure(figsize=(20,10))
+  fig = plt.figure(figsize= (int(20* factorSize),int(10* factorSize)) )
   ax = fig.gca()
   
+  
   ax.plot(lossSerie , "-", color="black")
-  ax.set_xlabel("Epoch number", fontsize=18, labelpad=20)
-  ax.set_ylabel("Logarithmic Loss", fontsize=18, labelpad=20)
-  ax.set_title("Training Loss evolution", fontsize=24)
-  ax.tick_params(labelsize=16)
+  ax.set_xlabel("Epoch number", fontsize=int(18 * factorSize), labelpad=int(20 * factorSize))
+  ax.set_ylabel("Logarithmic Loss", fontsize=int(18 * factorSize), labelpad=int(20 * factorSize))
+  ax.set_title("Training Loss evolution", fontsize=int(24 * factorSize))
+  ax.tick_params(labelsize=int(16 * factorSize))
   ax.set_facecolor('white')
   plt.show()
   return
@@ -41,7 +45,7 @@ def plotMultipleCurve(data,
 
   dataCurve = data[(data.index.get_level_values("Strike") <= yMax) * (data.index.get_level_values("Strike") >= yMin)]
 
-  fig = plt.figure(figsize=(20,10))
+  fig = plt.figure(figsize=(int(20* factorSize),int(10* factorSize)))
   ax = fig.gca()
 
   for t in np.linspace(0,0.8,9) :
@@ -51,12 +55,12 @@ def plotMultipleCurve(data,
                           index = curveK.index.get_level_values("Strike"))
     ax.plot(dataSerie , "--+", label=str(k))
   ax.legend()  
-  ax.set_xlabel(data.index.names[0], fontsize=18, labelpad=20)
-  ax.set_ylabel(data.name, fontsize=18, labelpad=20)
+  ax.set_xlabel(data.index.names[0], fontsize=int(18 * factorSize), labelpad=int(20 * factorSize))
+  ax.set_ylabel(data.name, fontsize=int(18 * factorSize), labelpad=int(20 * factorSize))
   if zAsPercent :
     ax.yaxis.set_major_formatter(mtick.PercentFormatter())
-  ax.set_title(Title, fontsize=24)
-  ax.tick_params(labelsize=16)
+  ax.set_title(Title, fontsize=int(24 * factorSize))
+  ax.tick_params(labelsize=int(16 * factorSize))
   ax.set_facecolor('white')
   plt.show()
   return
@@ -95,17 +99,17 @@ def plot2GridCustom(coordinates, zValue,
   y2 = coordinates2[:,0][filteredValue2]
   z2 = zValue2[filteredValue2].flatten()
   
-  fig = plt.figure(figsize=(20,10))
+  fig = plt.figure(figsize=(int(20* factorSize),int(10* factorSize)))
   ax = fig.gca(projection='3d')
   
-  ax.set_xlabel(xTitle, fontsize=18, labelpad=20)
-  ax.set_ylabel(yTitle, fontsize=18, labelpad=20)
-  ax.set_zlabel(zTitle, fontsize=18, labelpad=10)
+  ax.set_xlabel(xTitle, fontsize=int(18 * factorSize), labelpad=int(20 * factorSize))
+  ax.set_ylabel(yTitle, fontsize=int(18 * factorSize), labelpad=int(20 * factorSize))
+  ax.set_zlabel(zTitle, fontsize=int(18 * factorSize), labelpad=int(10 * factorSize))
   
   cmap=plt.get_cmap("inferno")
   colors=cmap(z * 100 if zAsPercent else z)[np.newaxis, :, :3]
-  ax.scatter(x2, y2, z2, marker='o', color="r", alpha=1, s=40)
-  ax.scatter(x, y, z, marker='o', color="b", alpha=1, s=40)
+  ax.scatter(x2, y2, z2, marker='o', color="r", alpha=1, s=int(40 * factorSize))
+  ax.scatter(x, y, z, marker='o', color="b", alpha=1, s=int(40 * factorSize))
   #surf = ax.plot_trisurf(x, y,
   #                       z * 100 if zAsPercent else z ,
   #                       linewidth=1.0,
@@ -123,7 +127,7 @@ def plot2GridCustom(coordinates, zValue,
   #ax.set_title(Title, fontsize=24)
   ax.set_facecolor('white')
 
-  plt.tick_params(labelsize=16)
+  plt.tick_params(labelsize=int(16 * factorSize))
 
   
   plt.show()
@@ -192,11 +196,11 @@ def plotGridCustom(coordinates, zValue,
   y = coordinates[:,0][filteredValue]
   z = zValue[filteredValue].flatten()
   
-  fig = plt.figure(figsize=(15,9))
+  fig = plt.figure(figsize=(int(factorSize * 15),int(factorSize * 9)))
   ax = fig.gca(projection='3d')
   
-  fontsize = 15
-  pad = 20
+  fontsize = int(factorSize * 15)
+  pad = int(factorSize * 20)
   ax.set_xlabel(xTitle, color = "k", fontsize=fontsize, labelpad=pad * 1.0)
   ax.set_ylabel(yTitle, color = "k", fontsize=fontsize, labelpad=pad * 1.0)
   ax.set_zlabel(zTitle, color = "k", fontsize=fontsize, labelpad=pad * 1.0)
@@ -220,9 +224,9 @@ def plotGridCustom(coordinates, zValue,
   ax.set_title(Title, fontsize=fontsize * 1.2)#, rotation='vertical', x=0.1, y=0.8)
   ax.set_facecolor('white')
 
-  plt.tick_params(axis = "y", labelsize=fontsize * 0.9, pad = pad * 0.4, color = [1,0,0,1])
-  plt.tick_params(axis = "z", labelsize=fontsize * 0.9, pad = pad * 0.5, color = [1,0,0,1])
-  plt.tick_params(axis = "x", labelsize=fontsize * 0.9, pad = pad * 0.05, color = [1,0,0,1])
+  plt.tick_params(axis = "y", labelsize=int(fontsize * 0.9), pad = int(pad * 0.4), color = [1,0,0,1])
+  plt.tick_params(axis = "z", labelsize=int(fontsize * 0.9), pad = int(pad * 0.5), color = [1,0,0,1])
+  plt.tick_params(axis = "x", labelsize=int(fontsize * 0.9), pad = int(pad * 0.05), color = [1,0,0,1])
   
   plt.tight_layout()
   
@@ -273,6 +277,74 @@ def plotSerie(data,
                  yMax = yMax, 
                  zAsPercent = zAsPercent)
   return
+  
+def plotHeatMap(data,
+                Title = 'True Price Surface',
+                az=320,
+                yMin = 0,
+                yMax = 1, 
+                zAsPercent = False):
+  coordinates = data.index.to_frame().values
+  zValue = data.values
+  xTitle = data.index.names[1]
+  yTitle = data.index.names[0]
+  zTitle = data.name
+  
+  y = coordinates[:,0]
+  filteredValue = (y > yMin) & (y < yMax)
+  x = coordinates[:,1][filteredValue]
+  y = coordinates[:,0][filteredValue]
+  z = zValue[filteredValue].flatten()
+  
+  fig = plt.figure(figsize=(int(factorSize * 15),int(factorSize * 9)))
+  ax = fig.gca()
+  
+  fontsize = int(factorSize * 15)
+  pad = int(factorSize * 20)
+  ax.set_xlabel(xTitle, color = "k", fontsize=fontsize, labelpad=pad * 1.0)
+  ax.set_ylabel(yTitle, color = "k", fontsize=fontsize, labelpad=pad * 1.0)
+  #ax.set_zlabel(zTitle, color = "k", fontsize=fontsize, labelpad=pad * 1.0)
+  
+  cmap=plt.get_cmap("jet")#("inferno")
+  colors=cmap(z * 100 if zAsPercent else z)[np.newaxis, :, :3]
+  
+  xSet = np.unique(x)
+  ySet = np.unique(y)
+  a, b = np.meshgrid(ySet, xSet)
+  c = np.reshape(backtest.interpolatedMCLocalVolatility(data, np.ravel(a), np.ravel(b)).values, 
+                 (xSet.size, ySet.size))
+  
+  l_a=x.min()
+  r_a=x.max()
+  l_b=y.min()
+  r_b=y.max()
+  l_c,r_c  = 0, np.abs(c).max()
+  
+  c = ax.pcolormesh(xSet, ySet, c, cmap='jet', vmin=l_c, vmax=r_c)
+  ax.axis([l_a, r_a, l_b, r_b])
+  fig.colorbar(c)
+  
+
+  #if zAsPercent :
+  #  ax.zaxis.set_major_formatter(mtick.PercentFormatter())
+  #ax.view_init(elev=40., azim=az)
+  #ax.set_ylim(np.amax(y), np.amin(y))
+  
+  ax.set_title(Title, fontsize=fontsize * 1.2)
+  #ax.set_facecolor('white')
+
+  plt.tick_params(axis = "y", labelsize=fontsize * 0.9, pad = pad * 0.4, color = [1,0,0,1])
+  #plt.tick_params(axis = "z", labelsize=fontsize * 0.9, pad = pad * 0.5, color = [1,0,0,1])
+  plt.tick_params(axis = "x", labelsize=fontsize * 0.9, pad = pad * 0.05, color = [1,0,0,1])
+  
+  plt.tight_layout()
+  
+  plt.show()
+
+
+  return
+
+
 
 ######################################################################### Training Diagnostic 
 
@@ -435,7 +507,7 @@ def modelSummary(price,
   ImpVol = pd.Series(ImpVol, index = price.index).sort_index().dropna()
   
   predictionDiagnosis(ImpVol, 
-                      selectIndex(benchDataset['ImpliedVol'], ImpVol.index),
+                      selectIndex(benchDataset[impliedVolColumn], ImpVol.index),
                       " Implied vol ",
                       yMin=yMin,
                       yMax=yMax,
@@ -752,19 +824,21 @@ def plot2GridCustomWithViolation(coordinates, zValue,
     y4 = coordinatesViolation2[:, 0][filteredValue4]
     z4 = zViolationValue2[filteredValue4].flatten()
 
-    fig = plt.figure(figsize=(20, 10))
+    fig = plt.figure(figsize=(int(factorSize * 20),int(factorSize * 10)))
     ax = fig.gca(projection='3d')
-
-    ax.set_xlabel(xTitle, fontsize=18, labelpad=20)
-    ax.set_ylabel(yTitle, fontsize=18, labelpad=20)
-    ax.set_zlabel(zTitle, fontsize=18, labelpad=10)
+    
+    fontsize = factorSize * 18
+    labelpad = factorSize * 20
+    ax.set_xlabel(xTitle, fontsize=fontsize, labelpad=labelpad)
+    ax.set_ylabel(yTitle, fontsize=fontsize, labelpad=labelpad)
+    ax.set_zlabel(zTitle, fontsize=fontsize, labelpad=0.5 * labelpad)
 
     cmap = plt.get_cmap("inferno")
     colors = cmap(z * 100 if zAsPercent else z)[np.newaxis, :, :3]
-    ax.scatter(x2, y2, z2, marker='o', color="r", alpha=1, s=40)
+    ax.scatter(x2, y2, z2, marker='o', color="r", alpha=1, s=factorSize * 40)
     #ax.scatter(x, y, z, marker='o', color="b", alpha=1, s=40)
-    ax.scatter(x3, y3, z3, marker='P', color="k", alpha=1, s=200)
-    ax.scatter(x4, y4, z4, marker='P', color="b", alpha=1, s=200)
+    ax.scatter(x3, y3, z3, marker='P', color="k", alpha=1, s=factorSize * 200)
+    ax.scatter(x4, y4, z4, marker='P', color="b", alpha=1, s=factorSize * 200)
 
     surf = ax.plot_trisurf(x, y,
                           z * 100 if zAsPercent else z ,
@@ -779,10 +853,10 @@ def plot2GridCustomWithViolation(coordinates, zValue,
     if zAsPercent:
         ax.zaxis.set_major_formatter(mtick.PercentFormatter())
     ax.view_init(elev=10., azim=az)
-    ax.set_title(Title, fontsize=24)
+    ax.set_title(Title, fontsize=factorSize * 24)
     ax.set_facecolor('white')
 
-    plt.tick_params(labelsize=16)
+    plt.tick_params(labelsize=factorSize * 16)
 
     plt.show()
 
@@ -848,17 +922,19 @@ def plotGridCustomWithViolation(coordinates, zValue,
     y3 = coordinatesViolation[:, 0][filteredValue3]
     z3 = zViolationValue[filteredValue3].flatten()
 
-    fig = plt.figure(figsize=(20, 10))
+    fig = plt.figure(figsize=(int(factorSize * 20),int(factorSize * 10)))
     ax = fig.gca(projection='3d')
 
-    ax.set_xlabel(xTitle, fontsize=18, labelpad=20)
-    ax.set_ylabel(yTitle, fontsize=18, labelpad=20)
-    ax.set_zlabel(zTitle, fontsize=18, labelpad=10)
+    fontsize = factorSize * 18
+    labelpad = factorSize * 20
+    ax.set_xlabel(xTitle, fontsize=fontsize, labelpad=labelpad)
+    ax.set_ylabel(yTitle, fontsize=fontsize, labelpad=labelpad)
+    ax.set_zlabel(zTitle, fontsize=fontsize, labelpad=0.5 * labelpad)
 
     cmap = plt.get_cmap("inferno")
     colors = cmap(z * 100 if zAsPercent else z)[np.newaxis, :, :3]
-    ax.scatter(x, y, z, marker='o', color="b", alpha=1, s=40)
-    ax.scatter(x3, y3, z3, marker='P', color="k", alpha=1, s=200)
+    ax.scatter(x, y, z, marker='o', color="b", alpha=1, s=factorSize * 40)
+    ax.scatter(x3, y3, z3, marker='P', color="k", alpha=1, s=factorSize * 200)
     # surf = ax.plot_trisurf(x, y,
     #                       z * 100 if zAsPercent else z ,
     #                       linewidth=1.0,
@@ -872,10 +948,10 @@ def plotGridCustomWithViolation(coordinates, zValue,
     if zAsPercent:
         ax.zaxis.set_major_formatter(mtick.PercentFormatter())
     ax.view_init(elev=10., azim=az)
-    ax.set_title(Title, fontsize=24)
+    ax.set_title(Title, fontsize=factorSize * 24)
     ax.set_facecolor('white')
 
-    plt.tick_params(labelsize=16)
+    plt.tick_params(labelsize=factorSize * 16)
 
     plt.show()
 
@@ -1012,7 +1088,7 @@ def plot2dSmiles(SSVIResults,
     heightPlot = math.ceil(nbMaturities/widthPlot)#int(np.sqrt(nbMaturities)) +  1 #2 
     nbFrame = heightPlot * widthPlot 
 
-    fig, axs = plt.subplots(heightPlot, widthPlot,figsize=(40,20))
+    fig, axs = plt.subplots(heightPlot, widthPlot,figsize=(int(factorSize * 40),int(factorSize * 20)))
     fig.subplots_adjust( wspace=0.2, hspace=0.4)
     #fig.suptitle('Implied volatility calibrated', fontsize=20)
     plotList = []
@@ -1062,7 +1138,7 @@ def plot2dSmiles(SSVIResults,
       if plotMarketData and (not showDiff) :
         plotList.append(axs[x,y].plot(xCoordinate, curveQuote.values, "k+", label = "Mid"))
       
-      marker = "o"
+      marker = "+"
       if trainingSet is not None :
         axs[x,y].plot(trainingCoordinate.values, trainingSpread.values, "b" + marker)
       if testingSet is not None :
@@ -1070,11 +1146,11 @@ def plot2dSmiles(SSVIResults,
       #axs[x,y].fill_between(xCoordinate, curveBid.values, curveAsk.values, alpha = 0.3)
       if gpQuantiles is not None : 
         axs[x,y].fill_between(xCoordinate, 
-                              gpQuantiles[0].loc[dataFiltered[impliedVolColumn].index], 
-                              gpQuantiles[1].loc[dataFiltered[impliedVolColumn].index], 
+                              gpQuantiles[0].loc[dataFiltered[impliedVolColumn].index] - (dataFiltered[impliedVolColumn] if showDiff else 0.0), 
+                              gpQuantiles[1].loc[dataFiltered[impliedVolColumn].index] - (dataFiltered[impliedVolColumn] if showDiff else 0.0), 
                               alpha = 0.3)
-      axs[x,y].tick_params(labelsize=26)
-      axs[x,y].set_title('Maturity : ' + str(round(maturities[k], 4)), fontsize=40)
+      axs[x,y].tick_params(labelsize=factorSize * 26)
+      axs[x,y].set_title('Maturity : ' + str(round(maturities[k], 4)), fontsize=factorSize * 40)
       axs[x,y].set_facecolor('white')
       for spine in axs[x,y].spines.values():
         spine.set_visible(True)
@@ -1103,8 +1179,8 @@ def plot2dSmiles(SSVIResults,
                        loc="lower left",   # Position of legend
                        borderaxespad=0.1,    # Small spacing around legend box
                        title=None,  # Title for the legend
-                       fontsize = '20',
-                       title_fontsize = '20',
+                       fontsize = factorSize * 20,
+                       title_fontsize = factorSize * 20,
                        bbox_to_anchor=[chartBox.x0, chartBox.y0, chartBox.width, chartBox.height])
           
           nbDeleted = nbDeleted + 1
@@ -1158,13 +1234,14 @@ def plot2dPriceSmiles(SSVIResults,
         maturities = np.array(maturityList) 
     #maturities = maturities.insert(0,maturitiesCount[maturitiesCount >= nbObservationThreshold].index.get_level_values("Maturity").unique()[0])
     maturities = np.sort(maturities)
+    nbMaturities = maturities.size
     
     
     widthPlot = 4#math.ceil(nbMaturities/heightPlot)
     heightPlot = math.ceil(nbMaturities/widthPlot)#int(np.sqrt(nbMaturities)) +  1 #2 
     nbFrame = heightPlot * widthPlot 
 
-    fig, axs = plt.subplots(heightPlot, widthPlot,figsize=(40,20))
+    fig, axs = plt.subplots(heightPlot, widthPlot,figsize=(int(factorSize * 40),int(factorSize * 20)))
     fig.subplots_adjust( wspace=0.2, hspace=0.4)
     #fig.suptitle('Implied volatility calibrated', fontsize=20)
     plotList = []
@@ -1214,7 +1291,7 @@ def plot2dPriceSmiles(SSVIResults,
       if plotMarketData and (not showDiff) :
         plotList.append(axs[x,y].plot(xCoordinate, curveQuote.values, "k+", label = "Mid"))
       
-      marker = "o"
+      marker = "+"
       if trainingSet is not None :
         axs[x,y].plot(trainingCoordinate.values, trainingSpread.values, "b" + marker)
       if testingSet is not None :
@@ -1222,11 +1299,11 @@ def plot2dPriceSmiles(SSVIResults,
       #axs[x,y].fill_between(xCoordinate, curveBid.values, curveAsk.values, alpha = 0.3)
       if gpQuantiles is not None : 
         axs[x,y].fill_between(xCoordinate, 
-                              gpQuantiles[0].loc[dataFiltered["Price"].index], 
-                              gpQuantiles[1].loc[dataFiltered["Price"].index], 
+                              gpQuantiles[0].loc[dataFiltered["Price"].index] - (dataFiltered["Price"] if showDiff else 0.0), 
+                              gpQuantiles[1].loc[dataFiltered["Price"].index] - (dataFiltered["Price"] if showDiff else 0.0), 
                               alpha = 0.3)
-      axs[x,y].tick_params(labelsize=26)
-      axs[x,y].set_title('Maturity : ' + str(round(maturities[k], 4)), fontsize=40)
+      axs[x,y].tick_params(labelsize=factorSize * 26)
+      axs[x,y].set_title('Maturity : ' + str(round(maturities[k], 4)), fontsize=factorSize * 40)
       axs[x,y].set_facecolor('white')
       for spine in axs[x,y].spines.values():
         spine.set_visible(True)
@@ -1255,8 +1332,8 @@ def plot2dPriceSmiles(SSVIResults,
                        loc="lower left",   # Position of legend
                        borderaxespad=0.1,    # Small spacing around legend box
                        title=None,  # Title for the legend
-                       fontsize = '20',
-                       title_fontsize = '20',
+                       fontsize = factorSize * 20,
+                       title_fontsize = factorSize * 20,
                        bbox_to_anchor=[chartBox.x0, chartBox.y0, chartBox.width, chartBox.height])
           
           nbDeleted = nbDeleted + 1
@@ -1317,7 +1394,7 @@ def plot2dSmilesTotalVariance(SSVIResults,
     heightPlot = math.ceil(nbMaturities/widthPlot)#int(np.sqrt(nbMaturities)) +  1 #2 
     nbFrame = heightPlot * widthPlot 
 
-    fig, axs = plt.subplots(heightPlot, widthPlot,figsize=(40,20))
+    fig, axs = plt.subplots(heightPlot, widthPlot,figsize=(int(factorSize * 40),int(factorSize * 20)))
     fig.subplots_adjust( wspace=0.2, hspace=0.4)
     #fig.suptitle('Implied volatility calibrated', fontsize=20)
     plotList = []
@@ -1367,7 +1444,7 @@ def plot2dSmilesTotalVariance(SSVIResults,
       if plotMarketData and (not showDiff) :
         plotList.append(axs[x,y].plot(xCoordinate, curveQuote.values, "k+", label = "Mid"))
       
-      marker = "o"
+      marker = "+"
       if trainingSet is not None :
         axs[x,y].plot(trainingCoordinate.values, trainingSpread.values, "b" + marker)
       if testingSet is not None :
@@ -1375,11 +1452,11 @@ def plot2dSmilesTotalVariance(SSVIResults,
       #axs[x,y].fill_between(xCoordinate, curveBid.values, curveAsk.values, alpha = 0.3)
       if gpQuantiles is not None : 
         axs[x,y].fill_between(xCoordinate, 
-                              impliedTotVarianceFunction(gpQuantiles[0].loc[dataFiltered[impliedVolColumn].index]), 
-                              impliedTotVarianceFunction(gpQuantiles[1].loc[dataFiltered[impliedVolColumn].index]), 
+                              impliedTotVarianceFunction(gpQuantiles[0].loc[dataFiltered[impliedVolColumn].index])  - (impliedTotVarianceFunction(dataFiltered[impliedVolColumn]) if showDiff else 0.0), 
+                              impliedTotVarianceFunction(gpQuantiles[1].loc[dataFiltered[impliedVolColumn].index]) - (impliedTotVarianceFunction(dataFiltered[impliedVolColumn]) if showDiff else 0.0), 
                               alpha = 0.3)
-      axs[x,y].tick_params(labelsize=26)
-      axs[x,y].set_title('Maturity : ' + str(round(maturities[k], 4)), fontsize=40)
+      axs[x,y].tick_params(labelsize=factorSize * 26)
+      axs[x,y].set_title('Maturity : ' + str(round(maturities[k], 4)), fontsize=factorSize * 40)
       axs[x,y].set_facecolor('white')
       for spine in axs[x,y].spines.values():
         spine.set_visible(True)
@@ -1408,8 +1485,8 @@ def plot2dSmilesTotalVariance(SSVIResults,
                        loc="lower left",   # Position of legend
                        borderaxespad=0.1,    # Small spacing around legend box
                        title=None,  # Title for the legend
-                       fontsize = '20',
-                       title_fontsize = '20',
+                       fontsize = factorSize * 20,
+                       title_fontsize = factorSize * 20,
                        bbox_to_anchor=[chartBox.x0, chartBox.y0, chartBox.width, chartBox.height])
           
           nbDeleted = nbDeleted + 1

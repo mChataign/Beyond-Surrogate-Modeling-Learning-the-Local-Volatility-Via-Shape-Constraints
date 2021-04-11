@@ -1,2 +1,2 @@
-model_checkpoint_path: "convexSoftGatheralVolModel"
-all_model_checkpoint_paths: "convexSoftGatheralVolModel"
+model_checkpoint_path: "convexSoftVolModel"
+all_model_checkpoint_paths: "convexSoftVolModel"

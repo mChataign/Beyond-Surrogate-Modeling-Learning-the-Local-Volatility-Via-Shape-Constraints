@@ -6,6 +6,7 @@ from scipy import *
 import bootstrapping
 from scipy.sparse import csc_matrix
 import matplotlib.pyplot as plt
+import time
 
 impliedVolColumn = BS.impliedVolColumn
 
@@ -1196,6 +1197,7 @@ class SSVIModel:
         self.forward_theta = None
 
     def fit(self, df):
+        start = time.time()
         filteredDf = removeMaturityInvalidData(df)
         self.parameters, self.theta, self.maturities, self.pSSVI = fit_svi_surface(filteredDf[impliedVolColumn].values,
                                                                                    filteredDf["Maturity"].values,
@@ -1223,6 +1225,8 @@ class SSVIModel:
         #                         self.interpMethod,
         #                         self.extrapolationMethod)
         #interest_interp = bootstrap.discountShortRate(tau_interp)
+        end = time.time()
+        print("Training Time : ", end - start)
         return
 
     def eval(self, df):

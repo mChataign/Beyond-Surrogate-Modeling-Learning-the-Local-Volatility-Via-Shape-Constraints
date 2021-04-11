@@ -53,7 +53,7 @@ def evalAndFormatDupireResult(price, volDupire, theta, gamma,
     scaledGammaK = pd.Series(gamma.flatten(), index=dataSet.index).rename("GammaK")
     predGammaK = inverseTransformColumnGreeks(dataSet, scaler, scaledGammaK,
                                               "Price", "ChangedStrike", order=2)
-    print("Number of arbitrage violation : ", np.sum((theta < 0) & (gamma < 0)) )
+    print("Number of arbitrage violation : ", np.sum((theta < 0) + (gamma < 0)) )
     return predPrice, predDupire, predTheta, predGammaK, lossEpoch
 
 #Penalization for pseudo local volatility
@@ -96,6 +96,15 @@ def selectMiniBatchWithReplacement(dataSet, batch_size):
         xBatchList.append(dataSet.iloc[idx,:])
     return xBatchList
 
+def computePriceWeighting(batch, scaler):
+    def secondMin(row):
+        return row.sort_values().iloc[1]
+    coordinates = dataSetConstruction.transformCustomMinMax(batch, scaler)[["ChangedStrike", "logMaturity"]]
+    distanceToClosestPoint = pd.DataFrame(scipy.spatial.distance_matrix(coordinates,
+                                                                        coordinates), 
+                                          index = coordinates.index,
+                                          columns = coordinates.index).apply(secondMin)
+    return distanceToClosestPoint
 
 ############################################################################################################# Price Neural network API
 
@@ -146,7 +155,7 @@ def create_train_model(NNFactory,
 
 
     # Get scaling for strike
-    colStrikeIndex = dataSet.columns.get_loc("Strike")
+    colStrikeIndex = dataSet.columns.get_loc("ChangedStrike")
     maxColFunction = scaler.data_max_[colStrikeIndex]
     minColFunction = scaler.data_min_[colStrikeIndex]
     scF = (maxColFunction - minColFunction) #0
@@ -162,13 +171,23 @@ def create_train_model(NNFactory,
     scaleTensorMaturity = tf.constant(scFMat, dtype=tf.float32)
     maturityMinTensor = tf.constant(minColFunctionMat, dtype=tf.float32)
     
+    # Get scaling for price
+    colPriceIndex = dataSet.columns.get_loc("Price")
+    maxColFunctionPrice = scaler.data_max_[colPriceIndex]
+    minColFunctionPrice = scaler.data_min_[colPriceIndex] #0
+    scFPrice = (maxColFunctionPrice - minColFunctionPrice) #1
+    scaleTensorPrice = tf.constant(scFPrice, dtype=tf.float32)
+    priceMinTensor = tf.constant(minColFunctionPrice, dtype=tf.float32)
+    
     tensorDict = {}
     tensorDict["Maturity"] = Maturity
     tensorDict["Strike"] = Strike
     tensorDict["scaleTensorStrike"] = scaleTensor
     tensorDict["scaleTensorMaturity"] = scaleTensorMaturity
-    tensorDict["moneynessMinTensor"] = moneynessMinTensor
+    tensorDict["StrikeMinTensor"] = StrikeMinTensor
     tensorDict["maturityMinTensor"] = maturityMinTensor
+    tensorDict["PriceMinTensor"] = priceMinTensor
+    tensorDict["scaleTensorPrice"] = scaleTensorPrice
     tensorDict["lossWeighting"] = weighting
     
     tensorDictPenalization = {}
@@ -176,20 +195,15 @@ def create_train_model(NNFactory,
     tensorDictPenalization["Strike"] = StrikePenalization
     tensorDictPenalization["scaleTensorStrike"] = scaleTensor
     tensorDictPenalization["scaleTensorMaturity"] = scaleTensorMaturity
-    tensorDictPenalization["StrikeMinTensor"] = moneynessMinTensor
+    tensorDictPenalization["StrikeMinTensor"] = StrikeMinTensor
     tensorDictPenalization["maturityMinTensor"] = maturityMinTensor
+    tensorDictPenalization["PriceMinTensor"] = priceMinTensor
+    tensorDictPenalization["scaleTensorPrice"] = scaleTensorPrice
     tensorDictPenalization["lossWeighting"] = weightingPenalization
         
     #Grid on which is applied Penalization [0, 2 * maxMaturity] and [minMoneyness, 2 * maxMoneyness]
-    #k = np.linspace(scaler.data_min_[dataSet.columns.get_loc("logMoneyness")],
-    #                2.0 * scaler.data_max_[dataSet.columns.get_loc("logMoneyness")],
-    #                num=50)
     
-    #k = np.linspace((np.log(0.5) + minColFunction) / scF,
-    #                (np.log(2.0) + maxColFunction) / scF,
-    #                num=50)
-    
-    k = np.linspace(0.5 * minColFunction / scF,
+    k = np.linspace(-0.5 * minColFunction / scF,
                     (2.0 * maxColFunction - minColFunction) / scF,
                     num=50)
     
@@ -231,13 +245,14 @@ def create_train_model(NNFactory,
                                                                                                 tensorDictPenalization,
                                                                                                 hyperparameters)
 
-        price_pred_tensor_sc = tf.multiply(factorPrice, price_pred_tensor)
+        price_pred_tensor_sc = tf.multiply(factorPrice, price_pred_tensor * scaleTensorPrice + priceMinTensor)
         unscaledMaturityTensor = (Maturity * scaleTensorMaturity + maturityMinTensor)
         maturityOriginal = tf.exp(unscaledMaturityTensor) if useLogMaturity else unscaledMaturityTensor
         TensorList[0] = price_pred_tensor_sc
 
         # Define a loss function
-        pointwiseError = tf.pow(tf.reduce_mean(tf.pow((price_pred_tensor_sc - y)/y , holderExponent) * weighting), 1.0 / holderExponent)
+        #pointwiseError = tf.pow(tf.reduce_mean(tf.pow((price_pred_tensor_sc - y)/y , holderExponent) * weighting), 1.0 / holderExponent)
+        pointwiseError = tf.pow(tf.reduce_mean(tf.pow((price_pred_tensor_sc - y) , holderExponent) * weighting), 1.0 / holderExponent)
         errors = tf.add_n([pointwiseError] + penalizationList1) #tf.add_n([pointwiseError] + penalizationList)
         loss = tf.log(tf.reduce_mean(errors))
         
@@ -269,18 +284,18 @@ def create_train_model(NNFactory,
     def createFeedDict(batch):
         batchSize = batch.shape[0]
         scaledBatch = dataSetConstruction.transformCustomMinMax(batch, scaler)
-        weighthingBatch = computeWeighting(batch, scaler)
+        weighthingBatch = computePriceWeighting(batch, scaler)
         feedDict = {Strike: scaledBatch["ChangedStrike"].values.reshape(batchSize, 1),  
                     Maturity:  scaledBatch["logMaturity"].values.reshape(batchSize, 1) if useLogMaturity else scaledBatch["Maturity"].values.reshape(batchSize, 1),  
-                    y: batch[impliedVolColumn].values.reshape(batchSize, 1),
+                    y: batch["Price"].values.reshape(batchSize, 1),
                     yBid : batch["Bid"].values.reshape(batchSize, 1),
                     yAsk : batch["Ask"].values.reshape(batchSize, 1),
                     StrikePenalization : np.expand_dims(kPenalization, 1),
                     MaturityPenalization : np.expand_dims(tPenalization, 1),
                     factorPrice: batch["DividendFactor"].values.reshape(batchSize, 1),
                     learningRateTensor: learningRate,
-                    weighting: np.expand_dims(weighthingBatch.values,1),#np.ones_like(batch["logMoneyness"].values.reshape(batchSize, 1)),
-                    weightingPenalization : np.mean(weighthingBatch) * np.ones_like(np.expand_dims(kPenalization, 1))}
+                    weighting: np.ones_like(batch["ChangedStrike"].values.reshape(batchSize, 1)),
+                    weightingPenalization : np.ones_like(np.expand_dims(kPenalization, 1))}
         return feedDict
 
     # Learning rate is divided by 10 if no imporvement is observed for training loss after "patience" epochs
@@ -311,13 +326,11 @@ def create_train_model(NNFactory,
         print("Best Penalization (Refined Grid) : ", currentBestPenalizations1)
         return
     
-    print("Training w.r.t. implied vol RMSE and arbitrage constraints")
+    print("Training w.r.t. price RMSE and arbitrage constraints")
+    debug = True
     for i in range(nbEpoch):
         miniBatchList = [dataSet]
-        #penalizationResult = sess.run(penalizationList, feed_dict=epochFeedDict)
-        #lossResult = sess.run(pointwiseError, feed_dict=epochFeedDict)
-
-        # miniBatchList = selectMiniBatchWithoutReplacement(dataSet, batch_size)
+        
         if len(miniBatchList) > 1 :
             for k in range(len(miniBatchList)):
                 batchFeedDict = createFeedDict(miniBatchList[k])
@@ -329,6 +342,16 @@ def create_train_model(NNFactory,
         if (len(loss_serie) < 2) or (loss_serie[-1] <= min(loss_serie)):
             # Save model as model is improved
             saver.save(sess, modelName)
+        if debug and (np.isnan(loss_serie[-1])):
+            print("Epoch : ", i)
+            print(np.isnan(y.eval(session=sess, feed_dict=epochFeedDict)).any())
+            print(np.isnan(price_pred_tensor_sc.eval(session=sess, feed_dict=epochFeedDict)).any())
+            print(np.isnan(price_pred_tensor.eval(session=sess, feed_dict=epochFeedDict)).any())
+            print(np.isnan(factorPrice.eval(session=sess, feed_dict=epochFeedDict)).any())
+            print(np.isnan(Strike.eval(session=sess, feed_dict=epochFeedDict)).any())
+            print(np.isnan(Maturity.eval(session=sess, feed_dict=epochFeedDict)).any())
+            print(np.isnan(pointwiseError.eval(session=sess, feed_dict=epochFeedDict)).any())
+            print(np.isnan(tf.add_n(penalizationList1).eval(session=sess, feed_dict=epochFeedDict)).any())
         if (np.isnan(loss_serie[-1]) or  # Unstable model
                 ((i - learningRateEpoch >= patience) and (min(loss_serie[-patience:]) > min(
                     loss_serie)))):  # No improvement for training loss during the latest 100 iterations
@@ -338,17 +361,15 @@ def create_train_model(NNFactory,
             else:
                 break
     saver.restore(sess, modelName)
-
-    print("Training w.r.t. implied vol RMSE, arbitrage constraints and bid-ask fork violation")
+    
+    print("Training w.r.t. price RMSE, arbitrage constraints and bid-ask fork violation")
     learningRate = hyperparameters["LearningRateStart"]
     loss_serie_fork = []
     learningRateEpoch = 0
+    
     for i in range(nbEpochFork):
         miniBatchList = [dataSet]
-        #penalizationResult = sess.run(penalizationList, feed_dict=epochFeedDict)
-        #lossResult = sess.run(pointwiseError, feed_dict=epochFeedDict)
-
-        # miniBatchList = selectMiniBatchWithoutReplacement(dataSet, batch_size)
+        
         for k in range(len(miniBatchList)):
             batchFeedDict = createFeedDict(miniBatchList[k])
             sess.run(trainFork, feed_dict=batchFeedDict)
@@ -398,7 +419,7 @@ def create_train_model(NNFactory,
 
     #print(tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES))
     lossEpochSerie = pd.Series(loss_serie + loss_serie_fork)
-    lossEpochSerie.to_csv("loss" + modelName + ".csv", header = True)
+    lossEpochSerie.to_csv("./Results/loss" + modelName + ".csv", header = True)
 
     return formattingFunction(*evalList, loss_serie, dataSet, scaler)
 
@@ -451,7 +472,7 @@ def create_eval_model(NNFactory,
 
 
     # Get scaling for strike
-    colStrikeIndex = dataSet.columns.get_loc("Strike")
+    colStrikeIndex = dataSet.columns.get_loc("ChangedStrike")
     maxColFunction = scaler.data_max_[colStrikeIndex]
     minColFunction = scaler.data_min_[colStrikeIndex]
     scF = (maxColFunction - minColFunction) #0
@@ -467,13 +488,23 @@ def create_eval_model(NNFactory,
     scaleTensorMaturity = tf.constant(scFMat, dtype=tf.float32)
     maturityMinTensor = tf.constant(minColFunctionMat, dtype=tf.float32)
     
+    # Get scaling for price
+    colPriceIndex = dataSet.columns.get_loc("Price")
+    maxColFunctionPrice = scaler.data_max_[colPriceIndex]
+    minColFunctionPrice = scaler.data_min_[colPriceIndex] #0
+    scFPrice = (maxColFunctionPrice - minColFunctionPrice) #1
+    scaleTensorPrice = tf.constant(scFPrice, dtype=tf.float32)
+    priceMinTensor = tf.constant(minColFunctionPrice, dtype=tf.float32)
+    
     tensorDict = {}
     tensorDict["Maturity"] = Maturity
     tensorDict["Strike"] = Strike
     tensorDict["scaleTensorStrike"] = scaleTensor
     tensorDict["scaleTensorMaturity"] = scaleTensorMaturity
-    tensorDict["moneynessMinTensor"] = moneynessMinTensor
+    tensorDict["StrikeMinTensor"] = StrikeMinTensor
     tensorDict["maturityMinTensor"] = maturityMinTensor
+    tensorDict["PriceMinTensor"] = priceMinTensor
+    tensorDict["scaleTensorPrice"] = scaleTensorPrice
     tensorDict["lossWeighting"] = weighting
     
     tensorDictPenalization = {}
@@ -481,8 +512,10 @@ def create_eval_model(NNFactory,
     tensorDictPenalization["Strike"] = StrikePenalization
     tensorDictPenalization["scaleTensorStrike"] = scaleTensor
     tensorDictPenalization["scaleTensorMaturity"] = scaleTensorMaturity
-    tensorDictPenalization["StrikeMinTensor"] = moneynessMinTensor
+    tensorDictPenalization["StrikeMinTensor"] = StrikeMinTensor
     tensorDictPenalization["maturityMinTensor"] = maturityMinTensor
+    tensorDictPenalization["PriceMinTensor"] = priceMinTensor
+    tensorDictPenalization["scaleTensorPrice"] = scaleTensorPrice
     tensorDictPenalization["lossWeighting"] = weightingPenalization
         
     #Grid on which is applied Penalization [0, 2 * maxMaturity] and [minMoneyness, 2 * maxMoneyness]
@@ -494,7 +527,7 @@ def create_eval_model(NNFactory,
     #                (np.log(2.0) + maxColFunction) / scF,
     #                num=50)
     
-    k = np.linspace(0.5 * minColFunction / scF,
+    k = np.linspace(-0.5 * minColFunction / scF,
                     (2.0 * maxColFunction - minColFunction) / scF,
                     num=50)
     
@@ -536,13 +569,14 @@ def create_eval_model(NNFactory,
                                                                                                 tensorDictPenalization,
                                                                                                 hyperparameters)
 
-        price_pred_tensor_sc = tf.multiply(factorPrice, price_pred_tensor)
+        price_pred_tensor_sc = tf.multiply(factorPrice, price_pred_tensor * scaleTensorPrice + priceMinTensor)
         unscaledMaturityTensor = (Maturity * scaleTensorMaturity + maturityMinTensor)
         maturityOriginal = tf.exp(unscaledMaturityTensor) if useLogMaturity else unscaledMaturityTensor
         TensorList[0] = price_pred_tensor_sc
 
         # Define a loss function
-        pointwiseError = tf.pow(tf.reduce_mean(tf.pow((price_pred_tensor_sc - y)/y , holderExponent) * weighting), 1.0 / holderExponent)
+        #pointwiseError = tf.pow(tf.reduce_mean(tf.pow((price_pred_tensor_sc - y)/y , holderExponent) * weighting), 1.0 / holderExponent)
+        pointwiseError = tf.pow(tf.reduce_mean(tf.pow((price_pred_tensor_sc - y) , holderExponent) * weighting), 1.0 / holderExponent)
         errors = tf.add_n([pointwiseError] + penalizationList1) #tf.add_n([pointwiseError] + penalizationList)
         loss = tf.log(tf.reduce_mean(errors))
         
@@ -574,18 +608,18 @@ def create_eval_model(NNFactory,
     def createFeedDict(batch):
         batchSize = batch.shape[0]
         scaledBatch = dataSetConstruction.transformCustomMinMax(batch, scaler)
-        weighthingBatch = computeWeighting(batch, scaler)
+        weighthingBatch = computePriceWeighting(batch, scaler)
         feedDict = {Strike: scaledBatch["ChangedStrike"].values.reshape(batchSize, 1),  
                     Maturity:  scaledBatch["logMaturity"].values.reshape(batchSize, 1) if useLogMaturity else scaledBatch["Maturity"].values.reshape(batchSize, 1),  
-                    y: batch[impliedVolColumn].values.reshape(batchSize, 1),
+                    y: batch["Price"].values.reshape(batchSize, 1),
                     yBid : batch["Bid"].values.reshape(batchSize, 1),
                     yAsk : batch["Ask"].values.reshape(batchSize, 1),
                     StrikePenalization : np.expand_dims(kPenalization, 1),
                     MaturityPenalization : np.expand_dims(tPenalization, 1),
                     factorPrice: batch["DividendFactor"].values.reshape(batchSize, 1),
                     learningRateTensor: learningRate,
-                    weighting: np.expand_dims(weighthingBatch.values,1),#np.ones_like(batch["logMoneyness"].values.reshape(batchSize, 1)),
-                    weightingPenalization : np.mean(weighthingBatch) * np.ones_like(np.expand_dims(kPenalization, 1))}
+                    weighting: np.ones_like(batch["ChangedStrike"].values.reshape(batchSize, 1)),
+                    weightingPenalization : np.ones_like(np.expand_dims(kPenalization, 1))}
         return feedDict
 
     # Learning rate is divided by 10 if no imporvement is observed for training loss after "patience" epochs
@@ -695,7 +729,7 @@ def evalVolLocale(NNFactory,
 
 
     # Get scaling for strike
-    colStrikeIndex = dataSet.columns.get_loc("Strike")
+    colStrikeIndex = dataSet.columns.get_loc("ChangedStrike")
     maxColFunction = scaler.data_max_[colStrikeIndex]
     minColFunction = scaler.data_min_[colStrikeIndex]
     scF = (maxColFunction - minColFunction) #0
@@ -711,13 +745,23 @@ def evalVolLocale(NNFactory,
     scaleTensorMaturity = tf.constant(scFMat, dtype=tf.float32)
     maturityMinTensor = tf.constant(minColFunctionMat, dtype=tf.float32)
     
+    # Get scaling for price
+    colPriceIndex = dataSet.columns.get_loc("Price")
+    maxColFunctionPrice = scaler.data_max_[colPriceIndex]
+    minColFunctionPrice = scaler.data_min_[colPriceIndex] #0
+    scFPrice = (maxColFunctionPrice - minColFunctionPrice) #1
+    scaleTensorPrice = tf.constant(scFPrice, dtype=tf.float32)
+    priceMinTensor = tf.constant(minColFunctionPrice, dtype=tf.float32)
+    
     tensorDict = {}
     tensorDict["Maturity"] = Maturity
     tensorDict["Strike"] = Strike
     tensorDict["scaleTensorStrike"] = scaleTensor
     tensorDict["scaleTensorMaturity"] = scaleTensorMaturity
-    tensorDict["moneynessMinTensor"] = moneynessMinTensor
+    tensorDict["StrikeMinTensor"] = StrikeMinTensor
     tensorDict["maturityMinTensor"] = maturityMinTensor
+    tensorDict["PriceMinTensor"] = priceMinTensor
+    tensorDict["scaleTensorPrice"] = scaleTensorPrice
     tensorDict["lossWeighting"] = weighting
     
     tensorDictPenalization = {}
@@ -725,8 +769,10 @@ def evalVolLocale(NNFactory,
     tensorDictPenalization["Strike"] = StrikePenalization
     tensorDictPenalization["scaleTensorStrike"] = scaleTensor
     tensorDictPenalization["scaleTensorMaturity"] = scaleTensorMaturity
-    tensorDictPenalization["StrikeMinTensor"] = moneynessMinTensor
+    tensorDictPenalization["StrikeMinTensor"] = StrikeMinTensor
     tensorDictPenalization["maturityMinTensor"] = maturityMinTensor
+    tensorDictPenalization["PriceMinTensor"] = priceMinTensor
+    tensorDictPenalization["scaleTensorPrice"] = scaleTensorPrice
     tensorDictPenalization["lossWeighting"] = weightingPenalization
         
     #Grid on which is applied Penalization [0, 2 * maxMaturity] and [minMoneyness, 2 * maxMoneyness]
@@ -738,7 +784,7 @@ def evalVolLocale(NNFactory,
     #                (np.log(2.0) + maxColFunction) / scF,
     #                num=50)
     
-    k = np.linspace(0.5 * minColFunction / scF,
+    k = np.linspace(-0.5 * minColFunction / scF,
                     (2.0 * maxColFunction - minColFunction) / scF,
                     num=50)
     
@@ -768,13 +814,14 @@ def evalVolLocale(NNFactory,
                                                                                             tensorDictPenalization,
                                                                                             hyperparameters)
 
-        price_pred_tensor_sc = tf.multiply(factorPrice, price_pred_tensor)
+        price_pred_tensor_sc = tf.multiply(factorPrice, price_pred_tensor * scaleTensorPrice + priceMinTensor)
         unscaledMaturityTensor = (Maturity * scaleTensorMaturity + maturityMinTensor)
         maturityOriginal = tf.exp(unscaledMaturityTensor) if useLogMaturity else unscaledMaturityTensor
         TensorList[0] = price_pred_tensor_sc
 
         # Define a loss function
-        pointwiseError = tf.pow(tf.reduce_mean(tf.pow((price_pred_tensor_sc - y)/y , holderExponent) * weighting), 1.0 / holderExponent)
+        #pointwiseError = tf.pow(tf.reduce_mean(tf.pow((price_pred_tensor_sc - y)/y , holderExponent) * weighting), 1.0 / holderExponent)
+        pointwiseError = tf.pow(tf.reduce_mean(tf.pow((price_pred_tensor_sc - y) , holderExponent) * weighting), 1.0 / holderExponent)
         errors = tf.add_n([pointwiseError] + penalizationList1) #tf.add_n([pointwiseError] + penalizationList)
         loss = tf.log(tf.reduce_mean(errors))
         
@@ -840,16 +887,18 @@ def dupireFormula(priceTensor,
     StrikeMinTensor = tensorDict["StrikeMinTensor"] 
     maturityMinTensor = tensorDict["maturityMinTensor"]
     weighting = tensorDict["lossWeighting"]
+    priceMinTensor = tensorDict["PriceMinTensor"]
+    scaleTensorPrice = tensorDict["scaleTensorPrice"]
     
     useLogMaturity = (hyperparameters["UseLogMaturity"] if ("UseLogMaturity" in hyperparameters) else False)
     maturity = scaledMaturityTensor * scaleTensorMaturity + maturityMinTensor
     
-    dK = tf.gradients(priceTensor, scaledStrikeTensor, name="dK") / scaleTensor
+    dK = tf.gradients(priceTensor, scaledStrikeTensor, name="dK") / scaleTensor * scaleTensorPrice
     hK = tf.gradients(dK[0], scaledStrikeTensor, name="hK") / scaleTensor
     if useLogMaturity :
-        theta = tf.gradients(priceTensor, scaledMaturityTensor, name="dT") / scaleTensorMaturity
+        theta = tf.gradients(priceTensor, scaledMaturityTensor, name="dT") / scaleTensorMaturity * scaleTensorPrice
     else :
-        theta = tf.gradients(priceTensor, scaledMaturityTensor, name="dT") / scaleTensorMaturity / tf.exp(maturity)
+        theta = tf.gradients(priceTensor, scaledMaturityTensor, name="dT") / scaleTensorMaturity / tf.exp(maturity) * scaleTensorPrice
     
     dupireDenominator = tf.square(scaledStrikeTensor * scaleTensor + StrikeMinTensor) * hK
     
@@ -870,60 +919,43 @@ def rawDupireFormula(priceTensor,
     StrikeMinTensor = tensorDict["StrikeMinTensor"] 
     maturityMinTensor = tensorDict["maturityMinTensor"]
     weighting = tensorDict["lossWeighting"]
+    priceMinTensor = tensorDict["PriceMinTensor"]
+    scaleTensorPrice = tensorDict["scaleTensorPrice"]
     
     useLogMaturity = (hyperparameters["UseLogMaturity"] if ("UseLogMaturity" in hyperparameters) else False)
     maturity = scaledMaturityTensor * scaleTensorMaturity + maturityMinTensor
     
-    dK = tf.gradients(priceTensor, scaledStrikeTensor, name="dK") / scaleTensor
+    dK = tf.gradients(priceTensor, scaledStrikeTensor, name="dK") / scaleTensor * scaleTensorPrice
     hK = tf.gradients(dK[0], scaledStrikeTensor, name="hK") / scaleTensor
     if useLogMaturity :
-        theta = tf.gradients(priceTensor, scaledMaturityTensor, name="dT") / scaleTensorMaturity
+        theta = tf.gradients(priceTensor, scaledMaturityTensor, name="dT") / scaleTensorMaturity / tf.exp(maturity) * scaleTensorPrice
     else :
-        theta = tf.gradients(priceTensor, scaledMaturityTensor, name="dT") / scaleTensorMaturity / tf.exp(maturity)
+        theta = tf.gradients(priceTensor, scaledMaturityTensor, name="dT") / scaleTensorMaturity * scaleTensorPrice
     
     dupireDenominator = tf.square(scaledStrikeTensor * scaleTensor + StrikeMinTensor) * hK
     
     #Initial weights of neural network can be random which lead to negative dupireVar
     dupireVar = 2 * theta / dupireDenominator
     dupireVol = tf.sqrt(dupireVar)
-    return  dupireVol, dT, hK, dupireVar
+    return  dupireVol, theta, hK, dupireVar
 
 
 ################################################################################################################## Soft constraints penalties
 
 # Soft constraints for strike convexity and strike/maturity monotonicity
-def arbitragePenaltiesPrice(priceTensor, 
+def arbitragePenaltiesPrice(theta, 
+                            hK, 
                             tensorDict,
                             weighting,
                             hyperparameters):
-    scaledMaturityTensor = tensorDict["Maturity"] 
-    scaledStrikeTensor = tensorDict["Strike"]
-    scaleTensor = tensorDict["scaleTensorStrike"] 
-    scaleTensorMaturity = tensorDict["scaleTensorMaturity"] 
-    StrikeMinTensor = tensorDict["StrikeMinTensor"] 
-    maturityMinTensor = tensorDict["maturityMinTensor"]
-    weighting = tensorDict["lossWeighting"]
-    
-    useLogMaturity = (hyperparameters["UseLogMaturity"] if ("UseLogMaturity" in hyperparameters) else False)
-    maturity = scaledMaturityTensor * scaleTensorMaturity + maturityMinTensor
-    
-    dK = tf.gradients(priceTensor, scaledStrikeTensor, name="dK") / scaleTensor
-    hK = tf.gradients(dK[0], scaledStrikeTensor, name="hK") / scaleTensor
-    if useLogMaturity :
-        theta = tf.gradients(priceTensor, scaledMaturityTensor, name="dT") / scaleTensorMaturity
-    else :
-        theta = tf.gradients(priceTensor, scaledMaturityTensor, name="dT") / scaleTensorMaturity / tf.exp(maturity)
 
-    lambdas = hyperparameters["lambdaSoft"] * tf.reduce_mean(weighting)
+    lambdas = tf.reduce_mean(weighting)
     lowerBoundTheta = tf.constant(hyperparameters["lowerBoundTheta"])
     lowerBoundGamma = tf.constant(hyperparameters["lowerBoundGamma"])
-    grad_penalty = lambdas * tf.reduce_mean(tf.nn.relu(-theta[0] + lowerBoundTheta))
-    hessian_penalty = lambdas * hyperparameters["lowerBoundGamma"] * tf.reduce_mean(
-        tf.nn.relu(-hK[0] + lowerBoundGamma))
+    grad_penalty = lambdas * hyperparameters["lambdaSoft"] * tf.reduce_mean(tf.nn.relu(-theta[0] + lowerBoundTheta))
+    hessian_penalty = lambdas * hyperparameters["lambdaGamma"] * tf.reduce_mean( tf.nn.relu(-hK[0] + lowerBoundGamma) )
 
     return [grad_penalty, hessian_penalty]
-
-
 
 
 ############################################################################# Tools function for Neural network architecture
@@ -1005,10 +1037,15 @@ def NNArchitectureConstrained(n_units,
                             isTraining=IsTraining,
                             name="Output")
     # Soft constraints
-    penaltyList = arbitragePenaltiesPrice(out, 
+    dupireVol, theta, hK, dupireVar = rawDupireFormula(out, 
+                                                       tensorDict,
+                                                       weighting,
+                                                       hyperparameters)
+    penaltyList = arbitragePenaltiesPrice(theta, 
+                                          hK,
                                           tensorDict,
                                           weighting,
-                                          hyperparameters)
+                                          hyperparameters)  
 
     return out, [out], penaltyList, evalAndFormatResult
 
@@ -1211,7 +1248,6 @@ def NNArchitectureVanillaSoftDupire(n_units,
     weighting = tensorDict["lossWeighting"]
     
     inputLayer = tf.concat([scaledStrikeTensor, scaledMaturityTensor], axis=-1)
-    #inputLayer = tf.concat([strikeTensor, tf.log(maturityTensor)], axis=-1)
     # First layer
     hidden1 = unconstrainedLayer(n_units=n_units,
                                  tensor=inputLayer,
@@ -1235,10 +1271,11 @@ def NNArchitectureVanillaSoftDupire(n_units,
                                                        hyperparameters)
     # Soft constraints for no arbitrage
     
-    penaltyList = arbitragePenaltiesPrice(out, 
+    penaltyList = arbitragePenaltiesPrice(theta, 
+                                          hK,
                                           tensorDict,
                                           weighting,
-                                          hyperparameters)    
+                                          hyperparameters)  
     
     return out, [out, dupireVol, theta, hK, dupireVar], penaltyList, evalAndFormatDupireResult
 
@@ -1389,7 +1426,8 @@ def NNArchitectureConstrainedRawDupire(n_units,
                                                        hyperparameters)
     # Soft constraints for no arbitrage
     
-    penaltyList = arbitragePenaltiesPrice(out, 
+    penaltyList = arbitragePenaltiesPrice(theta, 
+                                          hK,
                                           tensorDict,
                                           weighting,
                                           hyperparameters)   
@@ -1733,7 +1771,7 @@ def create_train_model_gatheral(NNFactory,
 
     #print(tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES))
     lossEpochSerie = pd.Series(loss_serie + loss_serie_fork)
-    lossEpochSerie.to_csv("loss" + modelName + ".csv", header = True)
+    lossEpochSerie.to_csv("./Results/loss" + modelName + ".csv", header = True)
 
     return formattingFunction(*evalList, loss_serie, dataSet, scaler)
 

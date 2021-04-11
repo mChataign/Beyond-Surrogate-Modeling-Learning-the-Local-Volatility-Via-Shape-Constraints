@@ -15,6 +15,7 @@ from scipy import integrate
 import BS
 import bootstrapping
 import sys, os
+import time
 
 impliedVolColumn = BS.impliedVolColumn
 
@@ -771,6 +772,7 @@ class SSVIModelFerhati:
         self.lambdaList = [1.0, 1.0, 1.0, 1.0, 1.0]
 
     def fit(self, df):
+        start = time.time()
         filteredDf = removeMaturityInvalidData(df)
         self.parameters, self.theta, self.maturities = fit_svi_surface(filteredDf[impliedVolColumn].values,
                                                                        filteredDf["Maturity"].values,
@@ -783,6 +785,8 @@ class SSVIModelFerhati:
         # round for float comparaison
         self.forward_theta = forward.groupby("Maturity").mean().values
         self.interestrate_theta = self.bootstrap.discountIntegral(self.maturities) / self.maturities
+        end = time.time()
+        print("Training Time : ", end - start)
         return
     
     def assessArbitrageViolations(self, df):
