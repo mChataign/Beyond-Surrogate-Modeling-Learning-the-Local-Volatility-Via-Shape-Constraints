@@ -436,7 +436,7 @@ def trainNeuralNetworkPrice(dataSet, hyperparameters, scaler, computeLocalVolati
                                            computeLocalVolatility,
                                            hyperparameters,
                                            scaler,
-                                           modelName = "convexSoftVolModel")
+                                           modelName = modelName)
     y_pred4, volLocale4, dNN_T4, gNN_K4, lossSerie4 = res
 
     plotTools.plotEpochLoss(lossSerie4)
@@ -539,7 +539,26 @@ def evaluateNeuralNetworkArbitrableFreePrice(dataSet,
                                                    "./Results/NeuralPrice")
     return resTrain, resTest
 
-
+def evaluateNeuralNetworkArbitrablePrice(dataSet, 
+                                         dataSetTest,
+                                         hyperparameters,
+                                         scaler,
+                                         KMin,
+                                         KMax,
+                                         S0, midS0,
+                                         bootstrap):
+    resTrain, resTest = evaluateNeuralNetworkPrice(dataSet, 
+                                                   dataSetTest,
+                                                   hyperparameters,
+                                                   scaler,
+                                                   False,
+                                                   KMin,
+                                                   KMax,
+                                                   S0, midS0,
+                                                   bootstrap,
+                                                   "unconstrainedConvexSoftVolModel",
+                                                   "./Results/NeuralUnconstrainedPrice")
+    return resTrain, resTest
 
 
 def AutomaticHyperparametersSelection(hyperparametersInit,
@@ -758,7 +777,7 @@ def loadGPResults(dataSet, dataSetTest, S0, bootstrap, KMin, KMax, volLocaleGrid
                         yMax=KMax, 
                         zAsPercent=True)
 
-    plotTools.plotSerie(locVolGP[locVolGP <= 2.0],
+    plotTools.plotSerie(locVolGP.clip(upper = 2.0), #locVolGP[locVolGP <= 2.0],
                         Title = '(Truncated) Interpolated GP local volatility on backtesting nodes',
                         az=105,
                         yMin=KMin,
@@ -847,6 +866,13 @@ def compareResults(dataSet, dataSetTest, S0, bootstrap):
     NeuralPriceTrain.name = "Constrained Price NN"
     NeuralPriceTest.name = "Constrained Price NN"
     NeuralPriceResults.name = "Constrained Price NN"
+    
+    NeuralUnconstrainedPriceTest = loadData.loadResults('NeuralUnconstrainedPriceTest.csv')
+    NeuralUnconstrainedPriceTrain = loadData.loadResults('NeuralUnconstrainedPriceTrain.csv')
+    NeuralUnconstrainedPriceResults = pd.concat([NeuralPriceTrain, NeuralPriceTest]).sort_index()
+    NeuralUnconstrainedPriceTrain.name = "Unconstrained Price NN"
+    NeuralUnconstrainedPriceTest.name = "Unconstrained Price NN"
+    NeuralUnconstrainedPriceResults.name = "Unconstrained Price NN"
     
     print("Loading SSVI results : ")
     SSVITest = loadData.loadResults('SSVIConstrainedTesting.csv')
@@ -955,18 +981,20 @@ def compareResults(dataSet, dataSetTest, S0, bootstrap):
                  backtest.rmse(dataSet["Price"], NeuralPriceTrain["Price"]),
                  backtest.rmse(dataSet["Price"], SSVIUnconstrainedTrain["Price"]),
                  backtest.rmse(dataSet["Price"], GPUnconstrainedTrain["Price"]),
-                 backtest.rmse(dataSet["Price"], NeuralUnconstrainedTrain["Price"])],
+                 backtest.rmse(dataSet["Price"], NeuralUnconstrainedTrain["Price"]),
+                 backtest.rmse(dataSet["Price"], NeuralUnconstrainedPriceTrain["Price"])],
                 [backtest.rmse(dataSetTest["Price"], SSVITest["Price"]),
                  backtest.rmse(dataSetTest["Price"], GPTest["Price"]),
                  backtest.rmse(dataSetTest["Price"], NeuralTest["Price"]),
                  backtest.rmse(dataSetTest["Price"], NeuralPriceTest["Price"]),
                  backtest.rmse(dataSetTest["Price"], SSVIUnconstrainedTest["Price"]),
                  backtest.rmse(dataSetTest["Price"], GPUnconstrainedTest["Price"]),
-                 backtest.rmse(dataSetTest["Price"], NeuralUnconstrainedTest["Price"])]]
+                 backtest.rmse(dataSetTest["Price"], NeuralUnconstrainedTest["Price"]),
+                 backtest.rmse(dataSetTest["Price"], NeuralUnconstrainedPriceTest["Price"])]]
     
     dfRMSE = pd.DataFrame(dataRMSE, index = ["Train","Test"], 
                           columns = ["SSVI", "GP", "Neural Network", "Neural Network with price",
-                                     "SSVI Unconstrained","GP Unconstrained","Neural Network Unconstrained"])
+                                     "SSVI Unconstrained","GP Unconstrained","Neural Network Unconstrained", "Neural Network with price Unconstrained"])
     print("Absolute Price RMSEs")
     display(dfRMSE.round(decimals = 3))
     
@@ -976,18 +1004,20 @@ def compareResults(dataSet, dataSetTest, S0, bootstrap):
                     backtest.rmse(dataSet["Price"], NeuralPriceTrain["Price"], relative=True),
                     backtest.rmse(dataSet["Price"], SSVIUnconstrainedTrain["Price"], relative=True),
                     backtest.rmse(dataSet["Price"], GPUnconstrainedTrain["Price"], relative=True),
-                    backtest.rmse(dataSet["Price"], NeuralUnconstrainedTrain["Price"], relative=True)],
+                    backtest.rmse(dataSet["Price"], NeuralUnconstrainedTrain["Price"], relative=True),
+                    backtest.rmse(dataSet["Price"], NeuralUnconstrainedPriceTrain["Price"], relative=True)],
                    [backtest.rmse(dataSetTest["Price"], SSVITest["Price"], relative=True),
                     backtest.rmse(dataSetTest["Price"], GPTest["Price"], relative=True),
                     backtest.rmse(dataSetTest["Price"], NeuralTest["Price"], relative=True),
                     backtest.rmse(dataSetTest["Price"], NeuralPriceTest["Price"], relative=True),
                     backtest.rmse(dataSetTest["Price"], SSVIUnconstrainedTest["Price"], relative=True),
                     backtest.rmse(dataSetTest["Price"], GPUnconstrainedTest["Price"], relative=True),
-                    backtest.rmse(dataSetTest["Price"], NeuralUnconstrainedTest["Price"], relative=True)]]
+                    backtest.rmse(dataSetTest["Price"], NeuralUnconstrainedTest["Price"], relative=True),
+                    backtest.rmse(dataSetTest["Price"], NeuralUnconstrainedPriceTest["Price"], relative=True)]]
 
     dfRelRMSE = pd.DataFrame(dataRelRMSE, index = ["Train","Test"], 
                              columns = ["SSVI", "GP", "Neural Network", "Neural Network with price",
-                                        "SSVI Unconstrained","GP Unconstrained","Neural Network Unconstrained"])
+                                        "SSVI Unconstrained","GP Unconstrained","Neural Network Unconstrained", "Neural Network with price Unconstrained"])
     print("Relative Price RMSEs (%)")
     display((dfRelRMSE * 100).round(decimals = 2))
     
@@ -998,18 +1028,20 @@ def compareResults(dataSet, dataSetTest, S0, bootstrap):
                     backtest.rmse(dataSet["ImpVolCalibrated"], NeuralPriceTrain["ImpliedVol"]),
                     backtest.rmse(dataSet["ImpVolCalibrated"], SSVIUnconstrainedTrain["ImpliedVol"]),
                     backtest.rmse(dataSet["ImpVolCalibrated"], GPUnconstrainedTrain["ImpliedVol"]),
-                    backtest.rmse(dataSet["ImpVolCalibrated"], NeuralUnconstrainedTrain["ImpliedVol"])],
+                    backtest.rmse(dataSet["ImpVolCalibrated"], NeuralUnconstrainedTrain["ImpliedVol"]),
+                    backtest.rmse(dataSet["ImpVolCalibrated"], NeuralUnconstrainedPriceTrain["ImpliedVol"])],
                    [backtest.rmse(dataSetTest["ImpVolCalibrated"], SSVITest["ImpliedVol"]),
                     backtest.rmse(dataSetTest["ImpVolCalibrated"], GPTest["ImpliedVol"]),
                     backtest.rmse(dataSetTest["ImpVolCalibrated"], NeuralTest["ImpliedVol"]),
                     backtest.rmse(dataSetTest["ImpVolCalibrated"], NeuralPriceTest["ImpliedVol"]),
                     backtest.rmse(dataSetTest["ImpVolCalibrated"], SSVIUnconstrainedTest["ImpliedVol"]),
                     backtest.rmse(dataSetTest["ImpVolCalibrated"], GPUnconstrainedTest["ImpliedVol"]),
-                    backtest.rmse(dataSetTest["ImpVolCalibrated"], NeuralUnconstrainedTest["ImpliedVol"])]]
+                    backtest.rmse(dataSetTest["ImpVolCalibrated"], NeuralUnconstrainedTest["ImpliedVol"]),
+                    backtest.rmse(dataSetTest["ImpVolCalibrated"], NeuralUnconstrainedPriceTest["ImpliedVol"])]]
 
     dfRMSEImp = pd.DataFrame(dataRMSEImp, index = ["Train","Test"], 
                              columns = ["SSVI", "GP", "Neural Network", "Neural Network with price",
-                                        "SSVI Unconstrained","GP Unconstrained","Neural Network Unconstrained"])
+                                        "SSVI Unconstrained","GP Unconstrained","Neural Network Unconstrained", "Neural Network with price Unconstrained"])
     print("Absolute Implied volatility RMSEs")
     display(dfRMSEImp.round(decimals = 4))
     
@@ -1019,18 +1051,20 @@ def compareResults(dataSet, dataSetTest, S0, bootstrap):
                        backtest.rmse(dataSet["ImpVolCalibrated"], NeuralPriceTrain["ImpliedVol"], relative=True),
                        backtest.rmse(dataSet["ImpVolCalibrated"], SSVIUnconstrainedTrain["ImpliedVol"], relative=True),
                        backtest.rmse(dataSet["ImpVolCalibrated"], GPUnconstrainedTrain["ImpliedVol"], relative=True),
-                       backtest.rmse(dataSet["ImpVolCalibrated"], NeuralUnconstrainedTrain["ImpliedVol"], relative=True)],
+                       backtest.rmse(dataSet["ImpVolCalibrated"], NeuralUnconstrainedTrain["ImpliedVol"], relative=True),
+                       backtest.rmse(dataSet["ImpVolCalibrated"], NeuralUnconstrainedPriceTrain["ImpliedVol"], relative=True)],
                       [backtest.rmse(dataSetTest["ImpVolCalibrated"], SSVITest["ImpliedVol"], relative=True),
                        backtest.rmse(dataSetTest["ImpVolCalibrated"], GPTest["ImpliedVol"], relative=True),
                        backtest.rmse(dataSetTest["ImpVolCalibrated"], NeuralTest["ImpliedVol"], relative=True),
                        backtest.rmse(dataSetTest["ImpVolCalibrated"], NeuralPriceTest["ImpliedVol"], relative=True),
                        backtest.rmse(dataSetTest["ImpVolCalibrated"], SSVIUnconstrainedTest["ImpliedVol"], relative=True),
                        backtest.rmse(dataSetTest["ImpVolCalibrated"], GPUnconstrainedTest["ImpliedVol"], relative=True),
-                       backtest.rmse(dataSetTest["ImpVolCalibrated"], NeuralUnconstrainedTest["ImpliedVol"], relative=True)]]
+                       backtest.rmse(dataSetTest["ImpVolCalibrated"], NeuralUnconstrainedTest["ImpliedVol"], relative=True),
+                       backtest.rmse(dataSetTest["ImpVolCalibrated"], NeuralUnconstrainedPriceTest["ImpliedVol"], relative=True)]]
 
     dfRMSERelImp = pd.DataFrame(dataRMSERelImp, index = ["Train","Test"], 
                                 columns = ["SSVI", "GP", "Neural Network", "Neural Network with price",
-                                           "SSVI Unconstrained","GP Unconstrained","Neural Network Unconstrained"])
+                                           "SSVI Unconstrained","GP Unconstrained","Neural Network Unconstrained", "Neural Network with price Unconstrained"])
     print("Relative Implied volatility RMSEs (%)")
     display((dfRMSERelImp * 100).round(decimals = 2))
     
@@ -1084,6 +1118,28 @@ def compareResults(dataSet, dataSetTest, S0, bootstrap):
                                      columns = ["SSVI", "GP", "Neural Network", "Neural Network with price"])
     print("Relative Price backtesting RMSEs (%)")
     display((dfRMSERelBacktest * 100).round(decimals = 2))
+    
+    ####Compute implied volatilities
+    def calibrateImpliedVol(backTestPrice):
+        imp = BS.vectorizedImpliedVolatilityCalibration(S0, bootstrap,
+                                                        backTestPrice.index.get_level_values("Maturity"),
+                                                        backTestPrice.index.get_level_values("Strike"),
+                                                        -1.0 * np.ones_like(backTestPrice),
+                                                        backTestPrice)
+        return pd.Series(imp, index = backTestPrice.index)
+    dfRMSEImpBacktest = [[backtest.rmse(dataSetTest["ImpVolCalibrated"], calibrateImpliedVol(backtestMCSSVI["Price"])),
+                          backtest.rmse(dataSetTest["ImpVolCalibrated"], calibrateImpliedVol(backtestMCGP["Price"])),
+                          backtest.rmse(dataSetTest["ImpVolCalibrated"], calibrateImpliedVol(backtestMCNeural["Price"])), 
+                          backtest.rmse(dataSetTest["ImpVolCalibrated"], calibrateImpliedVol(backtestMCNeuralPrice["Price"]))],
+                         [backtest.rmse(dataSetTest["ImpVolCalibrated"], calibrateImpliedVol(backtestPDESSVI[2])),
+                          backtest.rmse(dataSetTest["ImpVolCalibrated"], calibrateImpliedVol(backtestPDEGP[2])),
+                          backtest.rmse(dataSetTest["ImpVolCalibrated"], calibrateImpliedVol(backtestPDENeural[2])),
+                          backtest.rmse(dataSetTest["ImpVolCalibrated"], calibrateImpliedVol(backtestPDENeuralPrice[2]))]]
+
+    dfRMSEImpBacktest = pd.DataFrame(dfRMSEImpBacktest, index = ["Monte Carlo","PDE"], 
+                                     columns = ["SSVI", "GP", "Neural Network", "Neural Network with price"])
+    print("Absolute Implied Vol backtesting RMSEs")
+    display(dfRMSEImpBacktest.round(decimals = 4))
     
     return
 

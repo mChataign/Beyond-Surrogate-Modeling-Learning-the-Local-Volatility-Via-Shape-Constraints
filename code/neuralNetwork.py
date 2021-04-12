@@ -24,6 +24,7 @@ inverseTransformColumn = dataSetConstruction.inverseTransformColumnMinMax if act
 inverseTransformColumnGreeks = dataSetConstruction.inverseTransformColumnGreeksMinMax if activateScaling else dataSetConstruction.inverseTransformColumnGreeksId
 
 layerFactory = {}
+modelFolder = "./Results/" 
 
 ############################################################################################################# Tooling functions
 def resetTensorflow():
@@ -306,7 +307,7 @@ def create_train_model(NNFactory,
         if learningRate > finalLearningRate:
             lr *= 0.1
             lrEpoch = iterNumber
-            saver.restore(sess, modelName)
+            saver.restore(sess, modelFolder + modelName)
             print("Iteration : ", lrEpoch, "new learning rate : ", lr)
         else:
             print("Last Iteration : ", lrEpoch, "final learning rate : ", lr)
@@ -341,7 +342,7 @@ def create_train_model(NNFactory,
 
         if (len(loss_serie) < 2) or (loss_serie[-1] <= min(loss_serie)):
             # Save model as model is improved
-            saver.save(sess, modelName)
+            saver.save(sess, modelFolder + modelName)
         if debug and (np.isnan(loss_serie[-1])):
             print("Epoch : ", i)
             print(np.isnan(y.eval(session=sess, feed_dict=epochFeedDict)).any())
@@ -360,7 +361,7 @@ def create_train_model(NNFactory,
                 evalBestModel()
             else:
                 break
-    saver.restore(sess, modelName)
+    saver.restore(sess, modelFolder + modelName)
     
     print("Training w.r.t. price RMSE, arbitrage constraints and bid-ask fork violation")
     learningRate = hyperparameters["LearningRateStart"]
@@ -378,7 +379,7 @@ def create_train_model(NNFactory,
 
         if (len(loss_serie_fork) > 1) and (loss_serie_fork[-1] <= min(loss_serie_fork)):
             # Save model as error is improved
-            saver.save(sess, modelName)
+            saver.save(sess, modelFolder + modelName)
         if (np.isnan(loss_serie_fork[-1]) or  # Unstable training
                 ((i - learningRateEpoch >= patience) and (min(loss_serie[-patience:]) > min(
                     loss_serie)))):  # No improvement for training loss during the latest 100 iterations
@@ -388,7 +389,7 @@ def create_train_model(NNFactory,
             else:
                 break
     
-    saver.restore(sess, modelName)
+    saver.restore(sess, modelFolder + modelName)
     evalBestModel()
     
     #Count arbitrage violations on refined grid (grid on which are applied penalizations)
@@ -419,7 +420,7 @@ def create_train_model(NNFactory,
 
     #print(tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES))
     lossEpochSerie = pd.Series(loss_serie + loss_serie_fork)
-    lossEpochSerie.to_csv("./Results/loss" + modelName + ".csv", header = True)
+    lossEpochSerie.to_csv(modelFolder +  "loss" + modelName + ".csv", header = True)
 
     return formattingFunction(*evalList, loss_serie, dataSet, scaler)
 
@@ -630,7 +631,7 @@ def create_eval_model(NNFactory,
         if learningRate > finalLearningRate:
             lr *= 0.1
             lrEpoch = iterNumber
-            saver.restore(sess, modelName)
+            saver.restore(sess, modelFolder + modelName)
             print("Iteration : ", lrEpoch, "new learning rate : ", lr)
         else:
             print("Last Iteration : ", lrEpoch, "final learning rate : ", lr)
@@ -651,7 +652,7 @@ def create_eval_model(NNFactory,
         return
     
     
-    saver.restore(sess, modelName)
+    saver.restore(sess, modelFolder + modelName)
     evalBestModel()
     
     #Count arbitrage violations on refined grid (grid on which are applied penalizations)
@@ -864,7 +865,7 @@ def evalVolLocale(NNFactory,
     scaledMaturities = ((np.log(maturities) if useLogMaturity else maturities) - minColFunctionMat) / scFMat
     epochFeedDict = createFeedDict(scaledStrike, scaledMaturities, dividendFactor)
 
-    saver.restore(sess, modelName)
+    saver.restore(sess, modelFolder + modelName)
 
     evalList = sess.run(TensorList, feed_dict=epochFeedDict)
 
@@ -1665,7 +1666,7 @@ def create_train_model_gatheral(NNFactory,
         if learningRate > finalLearningRate:
             lr *= 0.1
             lrEpoch = iterNumber
-            saver.restore(sess, modelName)
+            saver.restore(sess, modelFolder + modelName)
             print("Iteration : ", lrEpoch, "new learning rate : ", lr)
         else:
             print("Last Iteration : ", lrEpoch, "final learning rate : ", lr)
@@ -1702,7 +1703,7 @@ def create_train_model_gatheral(NNFactory,
 
         if (len(loss_serie) < 2) or (loss_serie[-1] <= min(loss_serie)):
             # Save model as model is improved
-            saver.save(sess, modelName)
+            saver.save(sess, modelFolder + modelName)
         if (np.isnan(loss_serie[-1]) or  # Unstable model
                 ((i - learningRateEpoch >= patience) and (min(loss_serie[-patience:]) > min(
                     loss_serie)))):  # No improvement for training loss during the latest 100 iterations
@@ -1711,7 +1712,7 @@ def create_train_model_gatheral(NNFactory,
                 evalBestModel()
             else:
                 break
-    saver.restore(sess, modelName)
+    saver.restore(sess, modelFolder + modelName)
 
     print("Training w.r.t. implied vol RMSE, arbitrage constraints and bid-ask fork violation")
     learningRate = hyperparameters["LearningRateStart"]
@@ -1741,7 +1742,7 @@ def create_train_model_gatheral(NNFactory,
             else:
                 break
     
-    saver.restore(sess, modelName)
+    saver.restore(sess, modelFolder + modelName)
     evalBestModel()
     
     #Count arbitrage violations on refined grid (grid on which are applied penalizations)
@@ -1771,7 +1772,7 @@ def create_train_model_gatheral(NNFactory,
 
     #print(tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES))
     lossEpochSerie = pd.Series(loss_serie + loss_serie_fork)
-    lossEpochSerie.to_csv("./Results/loss" + modelName + ".csv", header = True)
+    lossEpochSerie.to_csv(modelFolder + "loss" + modelName + ".csv", header = True)
 
     return formattingFunction(*evalList, loss_serie, dataSet, scaler)
 
@@ -1967,7 +1968,7 @@ def create_eval_model_gatheral(NNFactory,
         print("Best Penalization (Refined Grid): ", currentBestPenalizations1)
         return
 
-    saver.restore(sess, modelName)
+    saver.restore(sess, modelFolder + modelName)
 
     evalBestModel()
     
@@ -2154,7 +2155,7 @@ def evalVolLocaleGatheral(NNFactory,
     scaledMaturities = ((np.log(maturities) if useLogMaturity else maturities) - minColFunctionMat) / scFMat
     epochFeedDict = createFeedDict(scaledMoneyness, scaledMaturities)
 
-    saver.restore(sess, modelName)
+    saver.restore(sess, modelFolder + modelName)
 
     evalList = sess.run(TensorList, feed_dict=epochFeedDict)
 
