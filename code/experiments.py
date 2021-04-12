@@ -1086,3 +1086,40 @@ def compareResults(dataSet, dataSetTest, S0, bootstrap):
     display((dfRMSERelBacktest * 100).round(decimals = 2))
     
     return
+
+def backTestUnitTest(volLocaleGridDf,
+                     dataSetTest,
+                     nbTimeStep,
+                     nbPaths,
+                     KMin,
+                     KMax,
+                     S0,
+                     bootstrap,
+                     impliedVolConstant):
+    #Price black scholes model with implied volatility impliedVolConstant
+    def priceFromImpliedVolatility(vol, bootstrap, K, T, S0, optionType):
+        q = bootstrap.dividendIntegral(T) / T
+        r = bootstrap.discountIntegral(T) / T
+        return BS.bsformula( optionType, S0, K, r, T, vol, q=q)
+    fun = lambda x : priceFromImpliedVolatility(impliedVolConstant, bootstrap, x["Strike"], x["Maturity"], S0, x["OptionType"])[0]
+    
+    priceImpli = dataSetTest.apply(fun, axis = 1)
+    
+    def localVolFunction(s,t):
+        volLocaleGrid = pd.DataFrame(np.vstack((np.ravel(s), np.ravel(t))).T, 
+                                     columns = ["Strike", "Maturity"]).set_index(["Strike","Maturity"],drop=False)
+        return pd.Series(np.ones_like(s) * impliedVolConstant, index = volLocaleGrid.index)
+    
+    dataSetTestFake = dataSetTest.copy(deep=True)
+    dataSetTestFake["Price"] = priceImpli
+    resBacktestUnit = backTestLocalVolatility(localVolFunction,
+                                              volLocaleGridDf,
+                                              dataSetTestFake,
+                                              nbTimeStep,
+                                              nbPaths,
+                                              KMin,
+                                              KMax,
+                                              S0,
+                                              bootstrap,
+                                              "UnitTest") 
+    return

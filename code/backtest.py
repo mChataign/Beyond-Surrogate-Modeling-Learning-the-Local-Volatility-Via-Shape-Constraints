@@ -254,3 +254,6 @@ def MonteCarloPricerVectorizedImplicit(S,
                                        nbTimeStep):
   func = lambda x : MonteCarloPricerImplicit(S, x["Strike"], x["Maturity"], bootstrap, nbPaths, nbTimeStep, x[impliedVolColumn])
   return dataSet.apply(func, axis=1) * np.exp(-bootstrap.discountIntegral(dataSet.index.get_level_values("Maturity")))
+  
+
+
