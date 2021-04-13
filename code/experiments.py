@@ -19,7 +19,7 @@ import BS
 import loadData
 import plotTools
 import SSVI
-import SSVIFerhati
+import SSVIUnconstrained
 import neuralNetwork
 
 
@@ -297,6 +297,13 @@ def backTestLocalVolatility(localVolatilityFunction,
 
     plotTools.plotSerie(volLocalGridRefined,
                         Title = 'Local Volatility on refined grid',
+                        az=105,
+                        yMin=KMin,
+                        yMax=KMax,
+                        zAsPercent=False)
+    
+    plotTools.plotSerie(volLocalGridRefined.clip(upper = 2.0),
+                        Title = 'Truncated Local Volatility on refined grid',
                         az=105,
                         yMin=KMin,
                         yMax=KMax,
@@ -679,7 +686,7 @@ def trainSSVIModel(trainingSet, S0, bootstrap, isConstrained):
     if isConstrained :
         SSVIModel = SSVI.SSVIModel(S0, bootstrap)
     else :
-        SSVIModel = SSVIFerhati.SSVIModelFerhati(S0, bootstrap)
+        SSVIModel = SSVIUnconstrained.SSVIModelUnconstrained(S0, bootstrap)
         SSVIModel.lambdaList = [0.0, 0.0, 0.0, 0.0, 0.0] #[1e-3, 1e-3, 1e-3, 1e-3, 1e-5]
         #SSVIModel.automaticHyperparametersTuning(dataSet)
     SSVIModel.fit(trainingSet)
@@ -726,7 +733,7 @@ def evalSSVIModel(dataSet, ssviModel, KMin, KMax, S0, bootstrap, fileName):
     
     
     #dT, hk, dK, locVolSSVI, density = finiteDifferenceSVI(dataSet, interpolateWithSSVI)
-    dT, hk, dK, locVolSSVI, density = SSVIFerhati.finiteDifferenceSVI(dataSet, ssviModel.eval)
+    dT, hk, dK, locVolSSVI, density = SSVIUnconstrained.finiteDifferenceSVI(dataSet, ssviModel.eval)
     
     plotTools.diagnoseLocalVol(dT,
                                locVolSSVI,
@@ -1178,4 +1185,24 @@ def backTestUnitTest(volLocaleGridDf,
                                               S0,
                                               bootstrap,
                                               "UnitTest") 
+    
+    ####Compute implied volatilities
+    def calibrateImpliedVol(backTestPrice):
+        imp = BS.vectorizedImpliedVolatilityCalibration(S0, bootstrap,
+                                                        backTestPrice.index.get_level_values("Maturity"),
+                                                        backTestPrice.index.get_level_values("Strike"),
+                                                        -1.0 * np.ones_like(backTestPrice),
+                                                        backTestPrice)
+        return pd.Series(imp, index = backTestPrice.index)
+     
+    volImpFake = pd.Series(np.ones_like(dataSetTestFake["Price"]) * impliedVolConstant, index = priceImpli.index)
+    rmseMCRefined = backtest.rmse(volImpFake, calibrateImpliedVol(resBacktestUnit[2]["Price"]))
+    rmseMCTest = backtest.rmse(volImpFake, calibrateImpliedVol(resBacktestUnit[3]["Price"]))
+    rmsePDERefined = backtest.rmse(volImpFake, calibrateImpliedVol(resBacktestUnit[4]))
+    rmsePDETest = backtest.rmse(volImpFake, calibrateImpliedVol(resBacktestUnit[5]))
+         
+    print("Implied vol RMSE Monte Carlo Refined Grid: ", rmseMCRefined )
+    print("Implied vol RMSE Monte Carlo Testing Grid: ", rmseMCTest )
+    print("Implied vol RMSE PDE Refined Grid: ", rmsePDERefined )
+    print("Implied vol RMSE PDE Testing Grid: ", rmsePDETest )
     return
