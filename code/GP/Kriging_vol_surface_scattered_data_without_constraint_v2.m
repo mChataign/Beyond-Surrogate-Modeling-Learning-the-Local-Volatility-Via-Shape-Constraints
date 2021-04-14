@@ -155,29 +155,29 @@ B = [];
 
 
 % condition 1) convexity in strike
-for i=2:x_nodes.nb-1 
-    for j=0:t_nodes.nb-1 
-       current_row_A = zeros(1,data.nb_nodes);
-       current_row_A(1, i*t_nodes.nb+j+1) = 1;
-       current_row_A(1, (i-1)*t_nodes.nb+j+1) = -2;
-       current_row_A(1, (i-2)*t_nodes.nb+j+1) = 1;
-       A = [A; current_row_A];  
-       B = [B; 0];         
-    end
-end
+% for i=2:x_nodes.nb-1 
+%     for j=0:t_nodes.nb-1 
+%        current_row_A = zeros(1,data.nb_nodes);
+%        current_row_A(1, i*t_nodes.nb+j+1) = 1;
+%        current_row_A(1, (i-1)*t_nodes.nb+j+1) = -2;
+%        current_row_A(1, (i-2)*t_nodes.nb+j+1) = 1;
+%        A = [A; current_row_A];  
+%        B = [B; 0];         
+%     end
+% end
    
 disp('Constructing the increasing in strike constraint matrices...');
 % condition 1bis a) for Put Options : price increasing in strike
 
 
 % Only needed to be tested at K_min
-for j=0:t_nodes.nb-1 
-   current_row_A = zeros(1,data.nb_nodes);
-   current_row_A(1, t_nodes.nb+j+1) = 1; %i=1
-   current_row_A(1, j+1) = -1; %i=0
-   A = [A; current_row_A];  
-   B = [B; 0];         
-end
+% for j=0:t_nodes.nb-1 
+%    current_row_A = zeros(1,data.nb_nodes);
+%    current_row_A(1, t_nodes.nb+j+1) = 1; %i=1
+%    current_row_A(1, j+1) = -1; %i=0
+%    A = [A; current_row_A];  
+%    B = [B; 0];         
+% end
 
 % for i=1:x_nodes.nb-1 
 %     for j=0:t_nodes.nb-1 
@@ -203,27 +203,27 @@ end
 disp('Constructing the increasing in maturity constraint matrices...');
 % condition 2) increasingness in maturity
 
-for i=0:x_nodes.nb-1 
-    for j=1:t_nodes.nb-1 
-       current_row_A = zeros(1,data.nb_nodes);
-       current_row_A(1, i*t_nodes.nb+j+1) = 1;
-       current_row_A(1, i*t_nodes.nb+j) = -1;
-       A = [A; current_row_A];  
-       B = [B; 0];         
-    end
-end
+% for i=0:x_nodes.nb-1 
+%     for j=1:t_nodes.nb-1 
+%        current_row_A = zeros(1,data.nb_nodes);
+%        current_row_A(1, i*t_nodes.nb+j+1) = 1;
+%        current_row_A(1, i*t_nodes.nb+j) = -1;
+%        A = [A; current_row_A];  
+%        B = [B; 0];         
+%     end
+% end
 
 % condition 3) surface values should be positive.
 % Given that the surface is increasing in maturity direction, 
 % this condition can be checked only for the points 
 % in the basis function grid with t = t_nodes.min
 disp('Constructing the positivity constraint matrices...');
-for i=0:x_nodes.nb-1 
-   current_row_A = zeros(1,data.nb_nodes);
-   current_row_A(1, i*t_nodes.nb+1) = 1;
-   A = [A; current_row_A];  
-   B = [B; 0];
-end
+% for i=0:x_nodes.nb-1 
+%    current_row_A = zeros(1,data.nb_nodes);
+%    current_row_A(1, i*t_nodes.nb+1) = 1;
+%    A = [A; current_row_A];  
+%    B = [B; 0];
+% end
 
 data.A = A;
 data.B = B;
@@ -324,8 +324,8 @@ problem = createOptimProblem('fmincon','objective',Log_like_handle,...
             'x0',param_init,'lb',lower_bound,'ub',upper_bound);%,'options',opts);
 ms = MultiStart('Display', 'iter');
 %ms = MultiStart('Display', 'off');
-%NB_start = 10;
-NB_start = 1;
+NB_start = 10;
+%NB_start = 1;
 [x,f] = run(ms,problem,NB_start);
 
 toc
@@ -393,10 +393,10 @@ f = zeros(data.nb_nodes+Nb_observ,1);
 
 %%
 tic
+% opts = optimoptions('quadprog',...
+%     'Algorithm','interior-point-convex','TolCon', 1e-12, 'Display','iter');
 opts = optimoptions('quadprog',...
-    'Algorithm','interior-point-convex','TolCon', 1e-12, 'Display','iter');
-%opts = optimoptions('quadprog',...
-%    'Algorithm','interior-point-convex','TolCon', 1e-14, 'Display','iter');
+   'Algorithm','interior-point-convex','TolCon', 1e-14, 'Display','iter');
 % opts = optimoptions('quadprog',...
 %     'Algorithm','interior-point-convex','TolCon', 1e-15, 'Display','iter');
 % opts = optimoptions('quadprog',...
@@ -408,9 +408,10 @@ opts = optimoptions('quadprog',...
 % iteration steps.
 %[Out_put, fval] = quadprog(Quad_matrix,f,-A_new,B_new,Aeq,Beq, [], [], [], opts);   
 
-Tol_AOA_constr = 1e-5;
+%Tol_AOA_constr = 1e-5;
 %Tol_AOA_constr = 1e-10;
-[Out_put, fval] = quadprog(Quad_matrix,f,-A_new,B_new-Tol_AOA_constr,Aeq,Beq, [], [], [], opts);   
+%[Out_put, fval] = quadprog(Quad_matrix,f,-A_new,B_new-Tol_AOA_constr,Aeq,Beq, [], [], [], opts);   
+[Out_put, fval] = quadprog(Quad_matrix,f,[],[],Aeq,Beq, [], [], [], opts);   
 
 toc
 Xi_mode = Out_put(1:data.nb_nodes);
@@ -418,7 +419,7 @@ Most_probable_noise_values = Out_put((data.nb_nodes+1):end);
 fval
 
 %% Check that inequality constraints are satistfied by the mode
-Constraint_cond_min = min(A*Xi_mode)
+%Constraint_cond_min = min(A*Xi_mode)
 
 % Former version of the MAP : 
 % [Xi_mode, fval] = quadprog(invGamma,f,-A,B,Aeq,Beq, [], [], [], opts);    
@@ -479,7 +480,7 @@ zlabel('Modified Put Price','Fontsize',16,'FontWeight','Bold','interpreter','lat
 set(gca,'Fontsize',16,'LineWidth',1);
 
 
-filename = 'GP_output.xlsx';
+filename = 'GP_output_without_AOA_constraint.xlsx';
 
 K_vect = reshape(xx, n_t*n_x, 1);
 T_vect = reshape(tt, n_t*n_x, 1);
@@ -659,118 +660,103 @@ end
 
 %% Plot Dupire vol surface
 
-%n_x = 70;
-
-n_x = 30;
-Export = true;
-filename = 'local_vol_nx_70_nt_22_alloc_9.xlsx';
-
-%n_x = floor(x_nodes.nb./2)-40; %FSTE 02/12/1999
-%n_x = floor(x_nodes.nb./2)+10; %09/08/2001
-%n_x = floor(x_nodes.nb./2)+5; %08/08/2001
-%n_x = floor(x_nodes.nb./2)+8; %07/08/2001
-
-n_t = t_nodes.nb-3;
-
+% n_x = 50;
+% 
+% %n_x = 15;
+% Export = true;
+% filename = 'local_vol_nx_50_nt_22_alloc_9.xlsx';
+% 
+% %n_x = floor(x_nodes.nb./2)-40; %FSTE 02/12/1999
+% %n_x = floor(x_nodes.nb./2)+10; %09/08/2001
+% %n_x = floor(x_nodes.nb./2)+5; %08/08/2001
+% %n_x = floor(x_nodes.nb./2)+8; %07/08/2001
+% 
+% n_t = t_nodes.nb-3;
+% 
 % x_k = linspace(min(available_strikes), max(available_strikes), n_x); %grille des strikes modifiés de taille n_x sur l'enveloppe convexe testset
 % x = linspace(min(Strike_test), max(Strike_test), n_x); %grille des strikes (non-modifiés) de taille n_x sur l'enveloppe convexe testset
-
-Strike_min = min([available_strikes; ChangedStrike]);
-Strike_max = max([available_strikes; ChangedStrike]);
-x_k = linspace(Strike_min, Strike_max, n_x); %grille des strikes modifiés de taille n_x sur l'enveloppe convexe testset
-
-%t = linspace(min(available_maturities), max(available_maturities), n_t); %grille des maturités de taille n_t sur l'enveloppe convexe testset
-
-Maturity_min = min([available_maturities; Maturity]);
-%Maturity_min = min(available_maturities);
-Maturity_min = 0.15;
-%Maturity_min = 0.5;
-
-Maturity_max = max([available_maturities; Maturity]);
-%Maturity_max = max(available_maturities);
-%Maturity_max = 2;
-
-
-t = linspace(Maturity_min, Maturity_max, n_t); %grille des maturités de taille n_t sur l'enveloppe convexe testset
-
-%t = linspace(min(available_maturities), max(available_maturities), n_t); %grille des maturités de taille n_t sur l'enveloppe convexe testset
-% n_x = 60;
-% n_t = 20;
-% x = linspace(x_nodes.min, x_nodes.max, n_x);
-% t = linspace(t_nodes.min+0.2, t_nodes.max, n_t);
-
-step_size_x = x_k(2)-x_k(1); %pas de la grille en K modifié
-step_size_t = t(2)-t(1); %pas de la grille en T
-
-% Compute the finite-dimensional Gaussian process for points in x and t %
-[Phi_x, Phi_t] = Basis_func_decomp(x_k, t, x_nodes, t_nodes);
-Phi_xt = kron(Phi_x,Phi_t);
-Y = Phi_xt*Xi_mode; %MAP aux points de la grille x_t times t -> fonction Omega estimée par krigeage contraint
-
-% Lissage - NE FONCTIONNE PAS - car lissage non convexe
-% x1 = linspace(x_nodes.min, x_nodes.max, 51);
-% t1 = linspace(t_nodes.min, t_nodes.max, 50);
-% n_x1 = length(x1);
-% n_t1 = length(t1);
-% [xx1, tt1] = ndgrid(x1,t1);
-% [Phi_x, Phi_t] = Basis_func_decomp(x1, t1, x_nodes, t_nodes);
+% 
+% %t = linspace(min(available_maturities), max(available_maturities), n_t); %grille des maturités de taille n_t sur l'enveloppe convexe testset
+% 
+% Maturity_min = min(available_maturities);
+% %Maturity_min = 0.15;
+% %Maturity_min = 0.5;
+% 
+% Maturity_max = max(available_maturities);
+% %Maturity_max = 2;
+% 
+% 
+% t = linspace(Maturity_min, Maturity_max, n_t); %grille des maturités de taille n_t sur l'enveloppe convexe testset
+% % 
+% %t = linspace(min(available_maturities), max(available_maturities), n_t); %grille des maturités de taille n_t sur l'enveloppe convexe testset
+% % n_x = 60;
+% % n_t = 20;
+% % x = linspace(x_nodes.min, x_nodes.max, n_x);
+% % t = linspace(t_nodes.min+0.2, t_nodes.max, n_t);
+% 
+% step_size_x = x_k(2)-x_k(1); %pas de la grille en K modifié
+% step_size_t = t(2)-t(1); %pas de la grille en T
+% 
+% % Compute the finite-dimensional Gaussian process for points in x and t %
+% [Phi_x, Phi_t] = Basis_func_decomp(x_k, t, x_nodes, t_nodes);
 % Phi_xt = kron(Phi_x,Phi_t);
-% Y = Phi_xt*Xi_mode;
-% Y = reshape(Y,  n_x1, n_t1);
-% Y_interpolant = griddedInterpolant(xx1, tt1, Y, 'cubic'); % create interpolant function object riskFree_int
-% [xx_k, tt] = ndgrid(x_k,t);
-% Z = Y_interpolant(xx_k, tt);
-% Z = Z';
-
-Z = reshape(Y, n_t, n_x); % gives n_t time n_x matrix of modified put price Z = omega
-
-vol_square = zeros(n_t-1, n_x-2); 
-
-for i = 1:(n_t-1)
-    for j = 2:(n_x-1)
-        diff_T_Omega = (Z(i+1,j)-Z(i,j))/step_size_t; %estimation par difference finie de la derivee de Omega par rapport a T
-        diff_2_k_Omega = (Z(i,j+1)-2*Z(i,j)+Z(i,j-1))/step_size_x^2; %estimation par difference finie de la derivee seconde de Omega par rapport a K modifié
-        vol_square(i,j-1) = 2*diff_T_Omega/((x_k(j)^2)*diff_2_k_Omega);
-    end
-end
-
-vol_Dupire = sqrt(vol_square);
-
-figure; % plot vol surface - strike first
-t_new = t(1:(n_t-1));
-
-% Previous version without convertion to unmodified strikes
+% Y = Phi_xt*Xi_mode; %MAP aux points de la grille x_t times t -> fonction Omega estimée par krigeage contraint
+% 
+% % Lissage - NE FONCTIONNE PAS - car lissage non convexe
+% % x1 = linspace(x_nodes.min, x_nodes.max, 51);
+% % t1 = linspace(t_nodes.min, t_nodes.max, 50);
+% % n_x1 = length(x1);
+% % n_t1 = length(t1);
+% % [xx1, tt1] = ndgrid(x1,t1);
+% % [Phi_x, Phi_t] = Basis_func_decomp(x1, t1, x_nodes, t_nodes);
+% % Phi_xt = kron(Phi_x,Phi_t);
+% % Y = Phi_xt*Xi_mode;
+% % Y = reshape(Y,  n_x1, n_t1);
+% % Y_interpolant = griddedInterpolant(xx1, tt1, Y, 'cubic'); % create interpolant function object riskFree_int
+% % [xx_k, tt] = ndgrid(x_k,t);
+% % Z = Y_interpolant(xx_k, tt);
+% % Z = Z';
+% 
+% Z = reshape(Y, n_t, n_x); % gives n_t time n_x matrix of modified put price Z = omega
+% 
+% vol_square = zeros(n_t-1, n_x-2); 
+% 
+% for i = 1:(n_t-1)
+%     for j = 2:(n_x-1)
+%         diff_T_Omega = (Z(i+1,j)-Z(i,j))/step_size_t; %estimation par difference finie de la derivee de Omega par rapport a T
+%         diff_2_k_Omega = (Z(i,j+1)-2*Z(i,j)+Z(i,j-1))/step_size_x^2; %estimation par difference finie de la derivee seconde de Omega par rapport a K modifié
+%         vol_square(i,j-1) = 2*diff_T_Omega/((x_k(j)^2)*diff_2_k_Omega);
+%     end
+% end
+% 
+% vol_Dupire = sqrt(vol_square);
+% t_new = t(1:(n_t-1));
 % x_new = x(2:(n_x-1)); % on utilise la grille des K non modifié pour avoir une representation de la fonction \sigma(T,K) et non \sigma(T,k)
+% 
+% figure; % plot vol surface - strike first
 % [xx_new, tt_new] = meshgrid(x_new,t_new);
-
-x_new = x_k(2:(n_x-1)); %grill des K modifié
-[xx_new, tt_new] = meshgrid(x_new,t_new); % meshgrid with modified strike
-div_int_vect = div_int_func(tt_new);
-riskFree_int_vect = riskFree_int_func(tt_new);
-xx_new = exp(riskFree_int_vect-div_int_vect).*xx_new; %convertion to unmodifed strikes
-
-surf(xx_new, tt_new, vol_Dupire);
-axis tight; grid on;
-title('Local Volatility Surface','Fontsize',16,'FontWeight','Bold','interpreter','latex');
-xlabel('Strike','Fontsize',16,'FontWeight','Bold','interpreter','latex');
-ylabel('Maturity','Fontsize',16,'FontWeight','Bold','interpreter','latex');
-zlabel('Local volatility','Fontsize',16,'FontWeight','Bold','interpreter','latex');
-set(gca,'Fontsize',16,'LineWidth',1);
-
-if Export 
-
-    K_vect = reshape(xx_new, (n_t-1)*(n_x-2), 1);
-    T_vect = reshape(tt_new, (n_t-1)*(n_x-2), 1);
-    vol_Dupire_vect = reshape(vol_Dupire, (n_t-1)*(n_x-2), 1);
-
-    K_a = array2table(K_vect,'VariableNames',{'K'});
-    T_a = array2table(T_vect,'VariableNames',{'T'});
-    vol_Dupire_vect_a = array2table(vol_Dupire_vect,'VariableNames',{'loc_vol'});
-    writetable(K_a,filename,'Sheet',1,'Range','A1')
-    writetable(T_a,filename,'Sheet',1,'Range','B1')
-    writetable(vol_Dupire_vect_a,filename,'Sheet',1,'Range','C1')
-
-end
+% surf(xx_new, tt_new, vol_Dupire);
+% axis tight; grid on;
+% title('Local Volatility Surface','Fontsize',16,'FontWeight','Bold','interpreter','latex');
+% xlabel('Strike','Fontsize',16,'FontWeight','Bold','interpreter','latex');
+% ylabel('Maturity','Fontsize',16,'FontWeight','Bold','interpreter','latex');
+% zlabel('Local volatility','Fontsize',16,'FontWeight','Bold','interpreter','latex');
+% set(gca,'Fontsize',16,'LineWidth',1);
+% 
+% if Export 
+% 
+%     K_vect = reshape(xx_new, (n_t-1)*(n_x-2), 1);
+%     T_vect = reshape(tt_new, (n_t-1)*(n_x-2), 1);
+%     vol_Dupire_vect = reshape(vol_Dupire, (n_t-1)*(n_x-2), 1);
+% 
+%     K_a = array2table(K_vect,'VariableNames',{'K'});
+%     T_a = array2table(T_vect,'VariableNames',{'T'});
+%     vol_Dupire_vect_a = array2table(vol_Dupire_vect,'VariableNames',{'loc_vol'});
+%     writetable(K_a,filename,'Sheet',1,'Range','A1')
+%     writetable(T_a,filename,'Sheet',1,'Range','B1')
+%     writetable(vol_Dupire_vect_a,filename,'Sheet',1,'Range','C1')
+% 
+% end
 
 %% Plot Black-Scholes vol surface
 %x = linspace(min(available_strikes), max(available_strikes), n_x);
@@ -859,11 +845,12 @@ Sigma_cond = (Sigma_cond+Sigma_cond')/2 + nugget*eye(data.nb_nodes);
 initial_X = Xi_mode;
 %Nb_simu_HCM = 100;
 
-tol = 0.000001;
-g = -tol*ones(data.Nbconstr, 1);
-[Xs, bounce_count] = HMC_exact(A, g, Sigma_cond, mu_cond, 'true', Nb_simu_HCM, initial_X);
+%tol = 0.000001;
+%g = -tol*ones(data.Nbconstr, 1);
+Xs = mvnrnd(mu_cond,Sigma_cond,Nb_simu_HCM)';
+%[Xs, bounce_count] = HMC_exact(A, g, Sigma_cond, mu_cond, 'true', Nb_simu_HCM, initial_X);
 
-save('Xs_100_sample_paths_alloc_9.mat', 'Xs')
+save('Xs_100_sample_paths_alloc_9_without_AOA_constraints.mat', 'Xs')
 
 toc
 

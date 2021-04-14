@@ -58,8 +58,7 @@ disp('Importing data...');
 % disp(['Generating random ' num2str(matdim) ' x ' num2str(matdim) ...
 %     ' symmetric matrix....']);
 
-Import_data_scattered_SnP500_18_05_2019_Marc_v2
-%Import_data_scattered_SnP500_18_05_2019_Marc
+Import_data_scattered_SnP500_18_05_2019_Marc
 %Import_data_scattered_SnP500_18_05_2019
 
 %Import_data_scattered_SXP;
@@ -83,40 +82,21 @@ Import_data_scattered_SnP500_18_05_2019_Marc_v2
 %% 2. Construct the grid of basis functions
 disp('Constructing the grid of basis function...');
 % a. Define the input space domain
-x_nodes.nb = 100; % Specify the number of x_nodes
+%x_nodes.nb = 60; % Specify the number of x_nodes
 %x_nodes.nb = 30; % Specify the number of x_nodes
-%x_nodes.nb = 70;
-%x_nodes.nb = 25; % test OK 2 - plus rapide
-%x_nodes.nb = 60; % test 1
-%x_nodes.nb = 50; % test OK
+x_nodes.nb = 70;
 x_nodes.min = min([available_strikes; data.K]);
 %x_nodes.min = min(data.K)-20; %Important -> allows to rescaled back the input domain -> min(data.K)-20 for scatter data
 x_nodes.max = max([available_strikes; data.K]);
-
-x_nodes.vect = linspace(x_nodes.min, x_nodes.max, x_nodes.nb); %raw grid (not normalized on [0,1])
-
-% Raffiner la grille autour de la monnaie -> les contraintes d'AOA sont à
-% adapter pour cela
-% x_grid_heart = linspace(2000, 3100, 25);
-% x_nodes.vect = [x_nodes.vect x_grid_heart];
-% x_nodes.min = min(x_nodes.vect);
-% x_nodes.max = max(x_nodes.vect);
-% x_nodes.nb = length(x_nodes.vect);
-
 %x_nodes.max = max(data.K)+10; % -> max(data.K)+10 for scatter data
 x_nodes.length = x_nodes.max-x_nodes.min; %Important -> allows to rescaled back the input domain
-
-
+x_nodes.vect = linspace(x_nodes.min, x_nodes.max, x_nodes.nb); %raw grid (not normalized on [0,1])
 x_nodes.delta = x_nodes.vect(2:end)-x_nodes.vect(1:(end-1)); % possiblité d'intégrer une grille non-homogène
 
-
-t_nodes.nb = 25; % test OK 2 - plus rapide
-%t_nodes.nb = 15; % test OK
-%t_nodes.nb = 40; % test 1
-%t_nodes.nb = 40; % test 2
+%t_nodes.nb = 20;
+t_nodes.nb = 30;
 %t_nodes.min = min(data.T)-0.01; %Important -> allows to rescaled back the input domain
 t_nodes.min = min([available_maturities; data.T]);
-%t_nodes.min = 0;
 %t_nodes.min = min(data.T); %Important -> allows to rescaled back the input domain
 t_nodes.max = max([available_maturities; data.T]);
 %t_nodes.max = max(available_maturities)+2;
@@ -152,32 +132,30 @@ tic
 disp('Constructing the convexity constraint matrices...');
 A = [];
 B = [];
-
-
 % condition 1) convexity in strike
-for i=2:x_nodes.nb-1 
-    for j=0:t_nodes.nb-1 
-       current_row_A = zeros(1,data.nb_nodes);
-       current_row_A(1, i*t_nodes.nb+j+1) = 1;
-       current_row_A(1, (i-1)*t_nodes.nb+j+1) = -2;
-       current_row_A(1, (i-2)*t_nodes.nb+j+1) = 1;
-       A = [A; current_row_A];  
-       B = [B; 0];         
-    end
-end
+% for i=2:x_nodes.nb-1 
+%     for j=0:t_nodes.nb-1 
+%        current_row_A = zeros(1,data.nb_nodes);
+%        current_row_A(1, i*t_nodes.nb+j+1) = 1;
+%        current_row_A(1, (i-1)*t_nodes.nb+j+1) = -2;
+%        current_row_A(1, (i-2)*t_nodes.nb+j+1) = 1;
+%        A = [A; current_row_A];  
+%        B = [B; 0];         
+%     end
+% end
    
 disp('Constructing the increasing in strike constraint matrices...');
 % condition 1bis a) for Put Options : price increasing in strike
 
 
 % Only needed to be tested at K_min
-for j=0:t_nodes.nb-1 
-   current_row_A = zeros(1,data.nb_nodes);
-   current_row_A(1, t_nodes.nb+j+1) = 1; %i=1
-   current_row_A(1, j+1) = -1; %i=0
-   A = [A; current_row_A];  
-   B = [B; 0];         
-end
+% for j=0:t_nodes.nb-1 
+%    current_row_A = zeros(1,data.nb_nodes);
+%    current_row_A(1, t_nodes.nb+j+1) = 1; %i=1
+%    current_row_A(1, j+1) = -1; %i=0
+%    A = [A; current_row_A];  
+%    B = [B; 0];         
+% end
 
 % for i=1:x_nodes.nb-1 
 %     for j=0:t_nodes.nb-1 
@@ -203,27 +181,27 @@ end
 disp('Constructing the increasing in maturity constraint matrices...');
 % condition 2) increasingness in maturity
 
-for i=0:x_nodes.nb-1 
-    for j=1:t_nodes.nb-1 
-       current_row_A = zeros(1,data.nb_nodes);
-       current_row_A(1, i*t_nodes.nb+j+1) = 1;
-       current_row_A(1, i*t_nodes.nb+j) = -1;
-       A = [A; current_row_A];  
-       B = [B; 0];         
-    end
-end
+% for i=0:x_nodes.nb-1 
+%     for j=1:t_nodes.nb-1 
+%        current_row_A = zeros(1,data.nb_nodes);
+%        current_row_A(1, i*t_nodes.nb+j+1) = 1;
+%        current_row_A(1, i*t_nodes.nb+j) = -1;
+%        A = [A; current_row_A];  
+%        B = [B; 0];         
+%     end
+% end
 
 % condition 3) surface values should be positive.
 % Given that the surface is increasing in maturity direction, 
 % this condition can be checked only for the points 
 % in the basis function grid with t = t_nodes.min
 disp('Constructing the positivity constraint matrices...');
-for i=0:x_nodes.nb-1 
-   current_row_A = zeros(1,data.nb_nodes);
-   current_row_A(1, i*t_nodes.nb+1) = 1;
-   A = [A; current_row_A];  
-   B = [B; 0];
-end
+% for i=0:x_nodes.nb-1 
+%    current_row_A = zeros(1,data.nb_nodes);
+%    current_row_A(1, i*t_nodes.nb+1) = 1;
+%    A = [A; current_row_A];  
+%    B = [B; 0];
+% end
 
 data.A = A;
 data.B = B;
@@ -324,7 +302,6 @@ problem = createOptimProblem('fmincon','objective',Log_like_handle,...
             'x0',param_init,'lb',lower_bound,'ub',upper_bound);%,'options',opts);
 ms = MultiStart('Display', 'iter');
 %ms = MultiStart('Display', 'off');
-%NB_start = 10;
 NB_start = 1;
 [x,f] = run(ms,problem,NB_start);
 
@@ -407,10 +384,7 @@ opts = optimoptions('quadprog',...
 % points and use an algorithm that satisfies the constrains at each
 % iteration steps.
 %[Out_put, fval] = quadprog(Quad_matrix,f,-A_new,B_new,Aeq,Beq, [], [], [], opts);   
-
-Tol_AOA_constr = 1e-5;
-%Tol_AOA_constr = 1e-10;
-[Out_put, fval] = quadprog(Quad_matrix,f,-A_new,B_new-Tol_AOA_constr,Aeq,Beq, [], [], [], opts);   
+[Out_put, fval] = quadprog(Quad_matrix,f,-A_new,B_new-1e-5,Aeq,Beq, [], [], [], opts);   
 
 toc
 Xi_mode = Out_put(1:data.nb_nodes);
@@ -418,7 +392,7 @@ Most_probable_noise_values = Out_put((data.nb_nodes+1):end);
 fval
 
 %% Check that inequality constraints are satistfied by the mode
-Constraint_cond_min = min(A*Xi_mode)
+%Constraint_cond_min = min(A*Xi_mode)
 
 % Former version of the MAP : 
 % [Xi_mode, fval] = quadprog(invGamma,f,-A,B,Aeq,Beq, [], [], [], opts);    
@@ -426,32 +400,27 @@ Constraint_cond_min = min(A*Xi_mode)
 % fval
 
 %% Compute RMSE on training set
-RMSE_bid_ask = sqrt(mean((data.Phi*Xi_mode - Beq).^2))
-RMSE_rel_bid_ask = mean(abs((data.Phi*Xi_mode - Beq)./Beq))
-% RMSE on mid price only
-K_scaled_mid_only = (ChangedStrike -  x_nodes.min)./x_nodes.length;
-T_scaled_mid_only = (Maturity - t_nodes.min)./t_nodes.length;
-Phi_mid_point = Basis_func_scattered_data(K_scaled_mid_only, T_scaled_mid_only, data.x_nodes_scaled, data.t_nodes_scaled);
-RMSE_mid = sqrt(mean((Phi_mid_point*Xi_mode - ModifiedPutPrice_mid).^2))
-RMSE_rel_mid = mean(abs((Phi_mid_point*Xi_mode - ModifiedPutPrice_mid)./ModifiedPutPrice_mid))
-
+RMSE = sqrt(mean((data.Phi*Xi_mode - Beq).^2))
+RMSE_rel = mean(abs((data.Phi*Xi_mode - Beq)./Beq))
 
 %% Compute RMSE on testing set
 
 % Renormalization of the input observed points
 K_test_scaled = (available_strikes -  x_nodes.min)./x_nodes.length;
 T_test_scaled = (available_maturities - t_nodes.min)./t_nodes.length;
+
 Phi_test_point = Basis_func_scattered_data(K_test_scaled, T_test_scaled, data.x_nodes_scaled, data.t_nodes_scaled);
 Phi_test_point_2 = Basis_func_scattered_data(available_strikes, available_maturities, x_nodes, t_nodes);
+
+
 RMSE_testset = sqrt(mean((Phi_test_point*Xi_mode - available_prices).^2))
 %[Phi_test_point*Xi_mode available_prices]
+
 %RMSE_testset = sqrt(mean((Phi_test_point_2*Xi_mode - available_prices).^2)); %gives same result
+
 RMSE_rel_testset = mean(abs((Phi_test_point*Xi_mode - available_prices)./available_prices))
-K_scaled_mid_only_testset = (ChangedStrike_test -  x_nodes.min)./x_nodes.length;
-T_scaled_mid_only_testset = (Maturity_test - t_nodes.min)./t_nodes.length;
-Phi_mid_point_testset = Basis_func_scattered_data(K_scaled_mid_only_testset, T_scaled_mid_only_testset, data.x_nodes_scaled, data.t_nodes_scaled);
-RMSE_mid_testset = sqrt(mean((Phi_mid_point_testset*Xi_mode - ModifiedPutPrice_test_mid).^2))
-RMSE_rel_mid_testset = mean(abs((Phi_mid_point_testset*Xi_mode - ModifiedPutPrice_test_mid)./ModifiedPutPrice_test_mid))
+
+
 
 %% plot MAP function on the initial domain -> need to scale back
 x = linspace(x_nodes.min, x_nodes.max, 50);
@@ -504,7 +473,7 @@ set(gca,'Fontsize',18,'LineWidth',1);
 
 
 
-%% Export Put price for Marc to compute implied vol
+%% Export Put price for Marc -> computation of implied vol
 
 % GP price on testing set 
 K_test = available_strikes;
@@ -554,116 +523,13 @@ writetable(Put_price_train_a,filename,'Sheet',1,'Range','D1');
 
 
 
-%% Plot MAP and at each maturities 
-
-Observed_maturities = unique(intersect(data.T, available_maturities));
-Nb_obs_mat = size(Observed_maturities, 1);
-
-for i=1:Nb_obs_mat
-% Compute the finite-dimensional Gaussian process for points in x and t
-
-    figure;
-
-    hold on;
-    index_available_maturities_at_T = (available_maturities == Observed_maturities(i));
-    scatter(available_strikes(index_available_maturities_at_T), available_prices(index_available_maturities_at_T), 'MarkerEdgeColor','k', 'MarkerFaceColor','k');
-    
-    index_traning_maturities_at_T = (data.T == Observed_maturities(i));
-    scatter(data.K(index_traning_maturities_at_T), data.price(index_traning_maturities_at_T), 'MarkerEdgeColor','r', 'MarkerFaceColor','r')
-
-    %available_strikes(index_available_maturities_at_T)
-    %data.K(index_traning_maturities_at_T)
-    
-    x_min = min(available_strikes(index_available_maturities_at_T));
-    x_min = min(x_min, min(data.K(index_traning_maturities_at_T)));
-    x_max = max(available_strikes(index_available_maturities_at_T));
-    x_max = max(x_max, max(data.K(index_traning_maturities_at_T)));
-    
-    x = linspace(x_min, x_max, 50);
-    %n_x = length(x);
-    
-    [Phi_x, Phi_t] = Basis_func_decomp(x, Observed_maturities(i), x_nodes, t_nodes);
-    Phi_xt = kron(Phi_x,Phi_t);
-    Y = Phi_xt*Xi_mode;
-    
-    plot(x, Y);
-    title_fig = strcat('Put Price at maturity T = ', ' ', num2str(Observed_maturities(i)));
-    title(title_fig,'Fontsize',16,'FontWeight','Bold','interpreter','latex');
-    
-    
-    axis tight; grid on;
-    
-    %pause;
-end
-
-%% Plot Implied Vol from MAP and at each maturities 
-
-Observed_maturities = unique(intersect(data.T, available_maturities)); %maturite unique observe a la fois en training et testing
-Nb_obs_mat = size(Observed_maturities, 1);
-
-for i=1:Nb_obs_mat
-% Compute the finite-dimensional Gaussian process for points in x and t
-
-    figure;
-    hold on; 
-    
-    % scatter plot of IV at testing points (bid and ask IV of testing set)
-    index_available_maturities_at_T = (available_maturities == Observed_maturities(i)); % indice du testing set (bid-ask) avec la maturité i
-    T_vol = available_maturities(index_available_maturities_at_T); %replication de la même maturité i pour tout les indices du test set avec mat i
-    r_int_vect = riskFree_int_func(T_vol);
-    div_int_vect = div_int_func(T_vol);
-    Put_price_vect = exp(-div_int_vect).*available_prices(index_available_maturities_at_T);
-    [T, K_test, IV] = Vol_from_putPrice_with_div(data.S0, r_int_vect, div_int_vect, available_strikes(index_available_maturities_at_T), T_vol, Put_price_vect);
-    scatter(K_test, IV, 'MarkerEdgeColor','k', 'MarkerFaceColor','k');
-    
-    % scatter plot of IV at training points (bid and ask IV of training set)
-    index_traning_maturities_at_T = (data.T == Observed_maturities(i));
-    T_vol = data.T(index_traning_maturities_at_T); %replication de la même maturité i pour tout les indices du test set avec mat i
-    r_int_vect = riskFree_int_func(T_vol);
-    div_int_vect = div_int_func(T_vol);
-    Put_price_vect = exp(-div_int_vect).*data.price(index_traning_maturities_at_T);
-    [T, K_train, IV] = Vol_from_putPrice_with_div(data.S0, r_int_vect, div_int_vect, data.K(index_traning_maturities_at_T), T_vol, Put_price_vect);
-    scatter(K_train, IV, 'MarkerEdgeColor','r', 'MarkerFaceColor','r');
-        
-    x_min = min(min(K_test), min(K_train));
-    x_max = max(max(K_test), max(K_train));
-    
-    nb_x = 50;
-    x = linspace(x_min, x_max, nb_x);
-    %n_x = length(x);
-    
-    [Phi_x, Phi_t] = Basis_func_decomp(x, Observed_maturities(i), x_nodes, t_nodes);
-    Phi_xt = kron(Phi_x,Phi_t);
-    Y = Phi_xt*Xi_mode;
-    
-    T_vol = repmat(Observed_maturities(i), 1, nb_x);
-    r_int_vect = riskFree_int_func(T_vol);
-    div_int_vect = div_int_func(T_vol);
-    Put_price_vect = exp(-div_int_vect).*Y;
-    [T, K_GP, IV] = Vol_from_putPrice_with_div(data.S0, r_int_vect, div_int_vect, x, T_vol, Put_price_vect);
-    plot(K_GP, IV);
-    
-    title_fig = strcat('Implied Vol at maturity T = ', ' ', num2str(Observed_maturities(i)));
-    title(title_fig,'Fontsize',16,'FontWeight','Bold','interpreter','latex');
-    
-    axis tight; grid on;
-    
-    %pause;
-end
-
-
-
-
-
-
-
 %% Plot Dupire vol surface
 
-%n_x = 70;
+n_x = 20;
 
-n_x = 30;
-Export = true;
-filename = 'local_vol_nx_70_nt_22_alloc_9.xlsx';
+%n_x = 15;
+Export = false;
+filename = 'local_vol_nx_20_nt_27.xlsx';
 
 %n_x = floor(x_nodes.nb./2)-40; %FSTE 02/12/1999
 %n_x = floor(x_nodes.nb./2)+10; %09/08/2001
@@ -672,23 +538,15 @@ filename = 'local_vol_nx_70_nt_22_alloc_9.xlsx';
 
 n_t = t_nodes.nb-3;
 
-% x_k = linspace(min(available_strikes), max(available_strikes), n_x); %grille des strikes modifiés de taille n_x sur l'enveloppe convexe testset
-% x = linspace(min(Strike_test), max(Strike_test), n_x); %grille des strikes (non-modifiés) de taille n_x sur l'enveloppe convexe testset
-
-Strike_min = min([available_strikes; ChangedStrike]);
-Strike_max = max([available_strikes; ChangedStrike]);
-x_k = linspace(Strike_min, Strike_max, n_x); %grille des strikes modifiés de taille n_x sur l'enveloppe convexe testset
+x_k = linspace(min(available_strikes), max(available_strikes), n_x); %grille des strikes modifiés de taille n_x sur l'enveloppe convexe testset
+x = linspace(min(Strike_test), max(Strike_test), n_x); %grille des strikes (non-modifiés) de taille n_x sur l'enveloppe convexe testset
 
 %t = linspace(min(available_maturities), max(available_maturities), n_t); %grille des maturités de taille n_t sur l'enveloppe convexe testset
 
-Maturity_min = min([available_maturities; Maturity]);
 %Maturity_min = min(available_maturities);
 Maturity_min = 0.15;
-%Maturity_min = 0.5;
-
-Maturity_max = max([available_maturities; Maturity]);
 %Maturity_max = max(available_maturities);
-%Maturity_max = 2;
+Maturity_max = 2;
 
 
 t = linspace(Maturity_min, Maturity_max, n_t); %grille des maturités de taille n_t sur l'enveloppe convexe testset
@@ -735,20 +593,11 @@ for i = 1:(n_t-1)
 end
 
 vol_Dupire = sqrt(vol_square);
+t_new = t(1:(n_t-1));
+x_new = x(2:(n_x-1)); % on utilise la grille des K non modifié pour avoir une representation de la fonction \sigma(T,K) et non \sigma(T,k)
 
 figure; % plot vol surface - strike first
-t_new = t(1:(n_t-1));
-
-% Previous version without convertion to unmodified strikes
-% x_new = x(2:(n_x-1)); % on utilise la grille des K non modifié pour avoir une representation de la fonction \sigma(T,K) et non \sigma(T,k)
-% [xx_new, tt_new] = meshgrid(x_new,t_new);
-
-x_new = x_k(2:(n_x-1)); %grill des K modifié
-[xx_new, tt_new] = meshgrid(x_new,t_new); % meshgrid with modified strike
-div_int_vect = div_int_func(tt_new);
-riskFree_int_vect = riskFree_int_func(tt_new);
-xx_new = exp(riskFree_int_vect-div_int_vect).*xx_new; %convertion to unmodifed strikes
-
+[xx_new, tt_new] = meshgrid(x_new,t_new);
 surf(xx_new, tt_new, vol_Dupire);
 axis tight; grid on;
 title('Local Volatility Surface','Fontsize',16,'FontWeight','Bold','interpreter','latex');
@@ -775,7 +624,7 @@ end
 %% Plot Black-Scholes vol surface
 %x = linspace(min(available_strikes), max(available_strikes), n_x);
 %t = linspace(min(available_maturities), max(available_maturities), n_t);
-x_vol = linspace(min(available_strikes), max(available_strikes), n_x);  % be careful -> the same n_x than for Dupire vol surface
+x_vol = linspace(min(available_strikes), max(available_strikes), n_x);
 %x_vol = linspace(min(Strike_test), max(Strike_test), n_x);
 t_vol = linspace(min(available_maturities), max(available_maturities), n_t);
 % x = linspace(x_nodes.min, x_nodes.max, 50);
@@ -836,9 +685,7 @@ VolSurface_from_putPrice_with_div(data.S0, r_int_vect, div_int_vect, Strike_vol(
 
 %% 8. Sampling of the truncated Gaussian process by exact HMC method -> see Pakman - Paninski paper
 
-Nb_simu_HCM = 100;
-
-tic
+Nb_simu_HCM = 1000;
 
 % Require sampling of \Xi given \Phi \xi + \tilde{\epsilon} = y which
 % follows a Normal distribution with mean :
@@ -850,64 +697,19 @@ mu_cond = aux*K_inv*Beq;
 % mu_cond_2 = aux*K_inv*Price_vector;
 
 % and convariance matrix :
-%nugget = 1e-4;
-%nugget = 5e-4;
-nugget = 1e-3;
+nugget = 1e-4;
+%nugget = 5e-2;
 Sigma_cond = Gamma - aux*K_inv*aux';
 Sigma_cond = (Sigma_cond+Sigma_cond')/2 + nugget*eye(data.nb_nodes);
 
 initial_X = Xi_mode;
 %Nb_simu_HCM = 100;
 
-tol = 0.000001;
-g = -tol*ones(data.Nbconstr, 1);
-[Xs, bounce_count] = HMC_exact(A, g, Sigma_cond, mu_cond, 'true', Nb_simu_HCM, initial_X);
+%tol = 0.00001;
+%g = tol*ones(data.Nbconstr, 1);
+Xs = mvnrnd(mu_cond,Sigma_cond,Nb_simu_HCM)';
+%[Xs, bounce_count] = HMC_exact(A, g, Sigma_cond, mu_cond, 'true', Nb_simu_HCM, initial_X);
 
-save('Xs_100_sample_paths_alloc_9.mat', 'Xs')
-
-toc
-
-%% 8 bis. Sampling of the truncated Gaussian process by exact HMC method -> see Pakman - Paninski paper
-% 
-% Nb_simu_HCM = 5;
-% 
-% % Require sampling of  (\Xi, \tilde{\epsilon}) given \Phi \xi + \tilde{\epsilon} = y which
-% % follows a Normal distribution 
-% 
-% % with conditional mean
-% 
-% Sigma_noise =  data.noise1_opt*eye(data.nb_price);
-% K = data.Phi*Gamma*data.Phi'; 
-% Sigma_XX = blkdiag(Gamma, Sigma_noise);
-% Sigma_XY = [Gamma*data.Phi'; Sigma_noise];
-% Sigma_YY = K + Sigma_noise;
-% [Sigma_YY_inv, Sigma_YY_det] = invChol_mex_2(Sigma_YY);
-% 
-% mu_cond = Sigma_XY*Sigma_YY_inv*Beq;
-% 
-% % and convariance matrix :
-% nugget = 5e-3;
-% %nugget = 5e-2;
-% Sigma_cond = Sigma_XX-Sigma_XY*Sigma_YY_inv*Sigma_XY';
-% Sigma_cond = (Sigma_cond+Sigma_cond')/2 + nugget*eye(data.nb_nodes + data.nb_price);
-% 
-% % Inequality constraints
-% Aeq = [Aeq eye(Nb_observ)];
-% nb_row_A = size(data.A,1);
-% A_ineq = [data.A zeros(nb_row_A,Nb_observ)];
-% B_ineq = data.B;
-% 
-% initial_X = Out_put;
-% 
-% tol = 0.000001;
-% g = -tol*ones(data.Nbconstr, 1);
-% [Xs_bis, bounce_count] = HMC_exact(A_ineq, g, Sigma_cond, mu_cond, 'true', Nb_simu_HCM, initial_X);
-
-
-%%
-
-
-% test_ineq = min(A_ineq*Xs_bis(:,5))
 
 %% 9. Constructing and plotting local vol for each a truncated GP sample path
 
@@ -991,28 +793,27 @@ toc
 %     
 %     
 % end
-% 
-% %axis tight; grid on;
-% %title('Local Volatility Surface Sample Paths','Fontsize',14,'FontWeight','Bold','interpreter','latex');
-% %xlabel('Strike','Fontsize',14,'FontWeight','Bold','interpreter','latex');
-% %ylabel('Maturity','Fontsize',14,'FontWeight','Bold','interpreter','latex');
-% %zlabel('Local volatility','Fontsize',14,'FontWeight','Bold','interpreter','latex');
-% %set(gca,'Fontsize',14,'LineWidth',1);
-% 
-% 
-% % filename = 'local_vol.xlsx';
-% % 
-% % K_vect = reshape(xx_new, (n_t-1)*(n_x-2), 1);
-% % T_vect = reshape(tt_new, (n_t-1)*(n_x-2), 1);
-% % vol_Dupire_vect = reshape(vol_Dupire, (n_t-1)*(n_x-2), 1);
-% % 
-% % K_a = array2table(K_vect,'VariableNames',{'K'});
-% % T_a = array2table(T_vect,'VariableNames',{'T'});
-% % vol_Dupire_vect_a = array2table(vol_Dupire_vect,'VariableNames',{'loc_vol'});
-% % writetable(K_a,filename,'Sheet',1,'Range','A1')
-% % writetable(T_a,filename,'Sheet',1,'Range','B1')
-% % writetable(vol_Dupire_vect_a,filename,'Sheet',1,'Range','C1')
 
+%axis tight; grid on;
+%title('Local Volatility Surface Sample Paths','Fontsize',14,'FontWeight','Bold','interpreter','latex');
+%xlabel('Strike','Fontsize',14,'FontWeight','Bold','interpreter','latex');
+%ylabel('Maturity','Fontsize',14,'FontWeight','Bold','interpreter','latex');
+%zlabel('Local volatility','Fontsize',14,'FontWeight','Bold','interpreter','latex');
+%set(gca,'Fontsize',14,'LineWidth',1);
+
+
+% filename = 'local_vol.xlsx';
+% 
+% K_vect = reshape(xx_new, (n_t-1)*(n_x-2), 1);
+% T_vect = reshape(tt_new, (n_t-1)*(n_x-2), 1);
+% vol_Dupire_vect = reshape(vol_Dupire, (n_t-1)*(n_x-2), 1);
+% 
+% K_a = array2table(K_vect,'VariableNames',{'K'});
+% T_a = array2table(T_vect,'VariableNames',{'T'});
+% vol_Dupire_vect_a = array2table(vol_Dupire_vect,'VariableNames',{'loc_vol'});
+% writetable(K_a,filename,'Sheet',1,'Range','A1')
+% writetable(T_a,filename,'Sheet',1,'Range','B1')
+% writetable(vol_Dupire_vect_a,filename,'Sheet',1,'Range','C1')
 
 %% 10. Plot local vol quantile surfaces
 
@@ -1058,304 +859,33 @@ toc
 
 %% 9. Plot price quantile surfaces
 
-% x = linspace(x_nodes.min, x_nodes.max, 50);
-% t = linspace(t_nodes.min, t_nodes.max, 50);
-% [xx, tt] = meshgrid(x,t);
-% n_x = length(x);
-% n_t = length(t);
-% % Compute the finite-dimensional Gaussian process for points in x and t
-% [Phi_x, Phi_t] = Basis_func_decomp(x, t, x_nodes, t_nodes);
-% Phi_xt = kron(Phi_x,Phi_t);
-% Y = Phi_xt*Xi_mode;
-% 
-% Quant_5 = quantile(Xs,0.05, 2);
-% Quant_95 = quantile(Xs,0.95, 2);
-% %[Quant_5 Quant_95]
-% Y_5 = Phi_xt*Quant_5;
-% Y_95 = Phi_xt*Quant_95;
-% figure;
-% surf(xx, tt, reshape(Y_5, n_t, n_x));
-% hold on;
-% surf(xx, tt, reshape(Y_95, n_t, n_x));
-% scatter3(data.K, data.T, data.price, 'MarkerEdgeColor','r', 'MarkerFaceColor','r');
-% axis tight; grid on;
-% title('5% - 95% quantile surfaces','Fontsize',14,'FontWeight','Bold','interpreter','latex');
-% xlabel('Modified Strike','Fontsize',14,'FontWeight','Bold','interpreter','latex');
-% ylabel('Maturity','Fontsize',14,'FontWeight','Bold','interpreter','latex');
-% zlabel('Modified Put Price','Fontsize',14,'FontWeight','Bold','interpreter','latex');
-% set(gca,'Fontsize',14,'LineWidth',1);
-
-
-
-%% Plot MAP and Posterior GP distribution on Price at each maturities 
-
-Observed_maturities = unique(intersect(data.T, available_maturities));
-Nb_obs_mat = size(Observed_maturities, 1);
-
-for i=1:Nb_obs_mat
+x = linspace(x_nodes.min, x_nodes.max, 50);
+t = linspace(t_nodes.min, t_nodes.max, 50);
+[xx, tt] = meshgrid(x,t);
+n_x = length(x);
+n_t = length(t);
 % Compute the finite-dimensional Gaussian process for points in x and t
+[Phi_x, Phi_t] = Basis_func_decomp(x, t, x_nodes, t_nodes);
+Phi_xt = kron(Phi_x,Phi_t);
+Y = Phi_xt*Xi_mode;
 
-    figure;
-
-    hold on;
-    index_available_maturities_at_T = (available_maturities == Observed_maturities(i));
-    scatter(available_strikes(index_available_maturities_at_T), available_prices(index_available_maturities_at_T), 'MarkerEdgeColor','k', 'MarkerFaceColor','k');
-    
-    index_traning_maturities_at_T = (data.T == Observed_maturities(i));
-    scatter(data.K(index_traning_maturities_at_T), data.price(index_traning_maturities_at_T), 'MarkerEdgeColor','r', 'MarkerFaceColor','r')
-
-    %available_strikes(index_available_maturities_at_T)
-    %data.K(index_traning_maturities_at_T)
-    
-    x_min = min(available_strikes(index_available_maturities_at_T));
-    x_min = min(x_min, min(data.K(index_traning_maturities_at_T)));
-    x_max = max(available_strikes(index_available_maturities_at_T));
-    x_max = max(x_max, max(data.K(index_traning_maturities_at_T)));
-    
-    x = linspace(x_min, x_max, 100);
-    %n_x = length(x);
-    
-    [Phi_x, Phi_t] = Basis_func_decomp(x, Observed_maturities(i), x_nodes, t_nodes);
-    Phi_xt = kron(Phi_x,Phi_t);
-    Y = Phi_xt*Xi_mode;
-    %Y_min = Phi_xt*Quant_5;
-    %Y_max = Phi_xt*Quant_95;
-    
-    %plot(x, Y_min, 'k');
-    %plot(x, Y_max, 'r');  
-    
-    Y_all = Phi_xt*Xs;
-    %plot_distribution_prctile(x, Phi_xt, Xs, 'Prctile', [0.5 1 5 10 25 35]);
-    plot_distribution_prctile_original_ver(x, Y_all','Prctile', [0.5 1 5 10 25 35]); 
-    %plot_distribution_prctile_original_ver(x, Y_all','Prctile', [10 35]);
-    
-    plot(x, Y, 'b');
-    
-    title_fig = strcat('Put Price at maturity T = ', ' ', num2str(Observed_maturities(i)));
-    title(title_fig,'Fontsize',16,'FontWeight','Bold','interpreter','latex');
-    
-    
-    axis tight; grid on;
-    
-    %pause;
-end
-
-%% Plot MAP and Posterior GP distribution on IV at each maturities
-
-Observed_maturities = unique(intersect(data.T, available_maturities)); %maturite unique observe a la fois en training et testing
-Nb_obs_mat = size(Observed_maturities, 1);
-
-%Nb_obs_mat = 3
-
-for i=1:Nb_obs_mat
-% Compute the finite-dimensional Gaussian process for points in x and t
-
-    figure;
-    hold on; 
-    
-    % scatter plot of IV at testing points (bid and ask IV of testing set)
-    index_available_maturities_at_T = (available_maturities == Observed_maturities(i)); % indice du testing set (bid-ask) avec la maturité i
-    T_vol = available_maturities(index_available_maturities_at_T); %replication de la même maturité i pour tout les indices du test set avec mat i
-    r_int_vect = riskFree_int_func(T_vol);
-    div_int_vect = div_int_func(T_vol);
-    Put_price_vect = exp(-div_int_vect).*available_prices(index_available_maturities_at_T);
-    [T, K_test, IV] = Vol_from_putPrice_with_div(data.S0, r_int_vect, div_int_vect, available_strikes(index_available_maturities_at_T), T_vol, Put_price_vect);
-   
-    K_test_2 = log(K_test/data.S0);
-    scatter(K_test_2, IV, 'MarkerEdgeColor','k', 'MarkerFaceColor','k');
-    
-    % scatter plot of IV at training points (bid and ask IV of training set)
-    index_traning_maturities_at_T = (data.T == Observed_maturities(i));
-    T_vol = data.T(index_traning_maturities_at_T); %replication de la même maturité i pour tout les indices du test set avec mat i
-    r_int_vect = riskFree_int_func(T_vol);
-    div_int_vect = div_int_func(T_vol);
-    Put_price_vect = exp(-div_int_vect).*data.price(index_traning_maturities_at_T);
-    [T, K_train, IV] = Vol_from_putPrice_with_div(data.S0, r_int_vect, div_int_vect, data.K(index_traning_maturities_at_T), T_vol, Put_price_vect);
-    K_train_2 = log(K_train/data.S0);
-    scatter(K_train_2, IV, 'MarkerEdgeColor','r', 'MarkerFaceColor','r');
-        
-    x_min = min(min(K_test), min(K_train));
-    x_max = max(max(K_test), max(K_train));
-    
-    nb_x = 50;
-    x = linspace(x_min, x_max, nb_x);
-    %n_x = length(x);
-    
-    [Phi_x, Phi_t] = Basis_func_decomp(x, Observed_maturities(i), x_nodes, t_nodes);
-    Phi_xt = kron(Phi_x,Phi_t);
-
-
-
-%  PLOTING PATH BY PATH
-
-%     % gey color code [17 17 17]
-%     Nb_plot = size(Xs,2);
-%     
-%     for j=1:Nb_plot
-%        
-%          T_vol = repmat(Observed_maturities(i), 1, nb_x);
-%          r_int_vect = riskFree_int_func(T_vol);
-%          div_int_vect = div_int_func(T_vol);
-%          Prices_path_j = Phi_xt*Xs(:,j);
-%          Prices_path_j = exp(-div_int_vect).*Prices_path_j;
-%          [T, K_GP_top, IV_top] = Vol_from_putPrice_with_div(data.S0, r_int_vect, div_int_vect, x, T_vol, Prices_path_j);
-%          %plot(K_GP_top, IV_top, 'k'); 
-%          plot(K_GP_top, IV_top, 'Color', [0.5 0.5 0.5 0.25]);
-% 
-%     end
-     
-
-    % Ploting filled percentile band
-    
-    prctile_value = [0.5 1 5 10 25 35];
-    p_value = sort(prctile_value);
-    alpha_value = 0.15;
-    ax = gca;
-    color_value = ax.ColorOrder(ax.ColorOrderIndex,:);
-    line_width = 2.0;
-
-    %p_value = 0.5*(100-sort(prctile_value));
-
-    % Create the polygons for the shaded region
-    for j=1:numel(p_value)
-        Ptop = prctile(Xs,100-p_value(j), 2);
-        Pbot = prctile(Xs,p_value(j), 2);
-        
-        Price_top = Phi_xt*Ptop;
-        Price_bot = Phi_xt*Pbot;
-        
-        T_vol = repmat(Observed_maturities(i), 1, nb_x);
-        r_int_vect = riskFree_int_func(T_vol);
-        div_int_vect = div_int_func(T_vol);
-        
-        
-        Put_price_vect_top = exp(-div_int_vect).*Price_top;
-        Put_price_vect_bot = exp(-div_int_vect).*Price_bot;
-        
-        [T, K_GP_top, IV_top] = Vol_from_putPrice_with_div(data.S0, r_int_vect, div_int_vect, x, T_vol, Put_price_vect_top);
-        [T, K_GP_bot, IV_bot] = Vol_from_putPrice_with_div(data.S0, r_int_vect, div_int_vect, x, T_vol, Put_price_vect_bot);
-
-        K_GP_top = log(K_GP_top/data.S0)';
-        K_GP_bot = log(K_GP_bot/data.S0)';       
-        IV_top = IV_top';
-        IV_bot = IV_bot';
-
-        for k=1:numel(K_GP_bot)-1
-            Px = [K_GP_bot(k) K_GP_bot(k+1) K_GP_bot(k+1) K_GP_bot(k)];
-            Py = [IV_top(k) IV_top(k+1) IV_bot(k+1) IV_bot(k)];
-            fill(Px,Py,color_value,'FaceAlpha',alpha_value,'EdgeColor','none');
-        end
-    end
-    %plot(X, basis_func*median(Y,2),'LineWidth',line_width,'Color',color_value);
-    %hold off
-
-    Y = Phi_xt*Xi_mode;
-    T_vol = repmat(Observed_maturities(i), 1, nb_x);
-    r_int_vect = riskFree_int_func(T_vol);
-    div_int_vect = div_int_func(T_vol);
-    Put_price_vect = exp(-div_int_vect).*Y;
-    [T, K_GP, IV] = Vol_from_putPrice_with_div(data.S0, r_int_vect, div_int_vect, x, T_vol, Put_price_vect);
-    plot(log(K_GP/data.S0), IV, 'color', 'b');
-    
-    title_fig = strcat('Implied Vol at maturity T = ', ' ', num2str(Observed_maturities(i)));
-    title(title_fig,'Fontsize',16,'FontWeight','Bold','interpreter','latex');
-    
-    axis tight; grid on;
-    
-    %pause;
-end
-
-
-
-
-
-% %% 9 bis. Plot price quantile surfaces - new HMC on joint distr
-% 
-% Xs_new = Xs_bis(1:data.nb_nodes, :);
-% 
-% x = linspace(x_nodes.min, x_nodes.max, 50);
-% t = linspace(t_nodes.min, t_nodes.max, 50);
-% [xx, tt] = meshgrid(x,t);
-% n_x = length(x);
-% n_t = length(t);
-% % Compute the finite-dimensional Gaussian process for points in x and t
-% [Phi_x, Phi_t] = Basis_func_decomp(x, t, x_nodes, t_nodes);
-% Phi_xt = kron(Phi_x,Phi_t);
-% Y = Phi_xt*Xi_mode;
-% 
-% Quant_5 = quantile(Xs_new,0.05, 2);
-% Quant_95 = quantile(Xs_new,0.95, 2);
-% %[Quant_5 Quant_95]
-% Y_5 = Phi_xt*Quant_5;
-% Y_95 = Phi_xt*Quant_95;
-% figure;
-% surf(xx, tt, reshape(Y_5, n_t, n_x));
-% hold on;
-% surf(xx, tt, reshape(Y_95, n_t, n_x));
-% scatter3(data.K, data.T, data.price, 'MarkerEdgeColor','r', 'MarkerFaceColor','r');
-% axis tight; grid on;
-% title('5% - 95% quantile surfaces','Fontsize',14,'FontWeight','Bold','interpreter','latex');
-% xlabel('Modified Strike','Fontsize',14,'FontWeight','Bold','interpreter','latex');
-% ylabel('Maturity','Fontsize',14,'FontWeight','Bold','interpreter','latex');
-% zlabel('Modified Put Price','Fontsize',14,'FontWeight','Bold','interpreter','latex');
-% set(gca,'Fontsize',14,'LineWidth',1);
-% 
-% 
-% 
-% %% Plot MAP and at each maturities 
-% 
-% Observed_maturities = unique(intersect(data.T, available_maturities));
-% Nb_obs_mat = size(Observed_maturities, 1);
-% 
-% for i=1:Nb_obs_mat
-% % Compute the finite-dimensional Gaussian process for points in x and t
-% 
-%     figure;
-% 
-%     hold on;
-%     index_available_maturities_at_T = (available_maturities == Observed_maturities(i));
-%     scatter(available_strikes(index_available_maturities_at_T), available_prices(index_available_maturities_at_T), 'MarkerEdgeColor','k', 'MarkerFaceColor','k');
-%     
-%     index_traning_maturities_at_T = (data.T == Observed_maturities(i));
-%     scatter(data.K(index_traning_maturities_at_T), data.price(index_traning_maturities_at_T), 'MarkerEdgeColor','r', 'MarkerFaceColor','r')
-% 
-%     %available_strikes(index_available_maturities_at_T)
-%     %data.K(index_traning_maturities_at_T)
-%     
-%     x_min = min(available_strikes(index_available_maturities_at_T));
-%     x_min = min(x_min, min(data.K(index_traning_maturities_at_T)));
-%     x_max = max(available_strikes(index_available_maturities_at_T));
-%     x_max = max(x_max, max(data.K(index_traning_maturities_at_T)));
-%     
-%     x = linspace(x_min, x_max, 50);
-%     %n_x = length(x);
-%     
-%     [Phi_x, Phi_t] = Basis_func_decomp(x, Observed_maturities(i), x_nodes, t_nodes);
-%     Phi_xt = kron(Phi_x,Phi_t);
-%     Y = Phi_xt*Xi_mode;
-%     Y_min = Phi_xt*Quant_5;
-%     Y_max = Phi_xt*Quant_95;
-%     
-%     
-% 
-%     plot(x, Y);
-%     plot(x, Y_min, 'k');
-%     plot(x, Y_max, 'r');  
-%     
-%     Y_all = Phi_xt*Xs_new;
-%     plot_distribution_prctile(x, Phi_xt, Xs_new, 'Prctile', [5 10 25 35]);
-%     
-%     title_fig = strcat('Put Price at maturity T = ', ' ', num2str(Observed_maturities(i)));
-%     title(title_fig,'Fontsize',16,'FontWeight','Bold','interpreter','latex');
-%     
-%     
-%     axis tight; grid on;
-%     
-%     %pause;
-% end
-
-
-
+Quant_5 = quantile(Xs,0.05, 2);
+Quant_95 = quantile(Xs,0.95, 2);
+[Quant_5 Quant_95]
+Y_5 = Phi_xt*Quant_5;
+Y_95 = Phi_xt*Quant_95;
+figure;
+surf(xx, tt, reshape(Y_5, n_t, n_x));
+hold on;
+surf(xx, tt, reshape(Y_95, n_t, n_x));
+scatter3(data.K, data.T, data.price, 'MarkerEdgeColor','r', 'MarkerFaceColor','r');
+axis tight; grid on;
+%title('5% - 95% quantile surfaces','Fontsize',14,'FontWeight','Bold','interpreter','latex');
+xlabel('Modified Strike','Fontsize',18,'FontWeight','Bold','interpreter','latex');
+ylabel('Maturity','Fontsize',18,'FontWeight','Bold','interpreter','latex');
+zlabel('Modified Put Price','Fontsize',18,'FontWeight','Bold','interpreter','latex');
+set(gca,'Fontsize',18,'LineWidth',1);
+%set(gca,'Fontsize',14,'FontWeight','Bold','LineWidth',1);
 
 
 %% 9 bis.  Plot local vol pointwise quantile surfaces
