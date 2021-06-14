@@ -13,7 +13,8 @@ import backtest
 
 impliedVolColumn = BS.impliedVolColumn
 factorSize = 0.5
-plt.rcParams['figure.dpi'] = 50
+#mage resolution, choose 100 if you want to reproduce the same picture format as in the paper
+plt.rcParams['figure.dpi'] = 50 #100
 
 ######################################################################### Training loss
 
@@ -1085,10 +1086,10 @@ def plot2dSmiles(SSVIResults,
     
     
     widthPlot = 4#math.ceil(nbMaturities/heightPlot)
-    heightPlot = math.ceil(nbMaturities/widthPlot)#int(np.sqrt(nbMaturities)) +  1 #2 
-    nbFrame = heightPlot * widthPlot 
+    heightPlot = math.ceil(nbMaturities/widthPlot)#int(np.sqrt(nbMaturities)) +  1 #2
+    nbFrame = heightPlot * widthPlot
 
-    fig, axs = plt.subplots(heightPlot, widthPlot,figsize=(int(factorSize * 40),int(factorSize * 20)))
+    fig, axs = plt.subplots(heightPlot, widthPlot,figsize=(int(factorSize * 40),int(factorSize * 10 * heightPlot)))
     fig.subplots_adjust( wspace=0.2, hspace=0.4)
     #fig.suptitle('Implied volatility calibrated', fontsize=20)
     plotList = []
@@ -1123,36 +1124,38 @@ def plot2dSmiles(SSVIResults,
 
       x = k // widthPlot
       y = k % widthPlot
+      framePlot = axs[x,y] if heightPlot > 1 else axs[y]
+      #framePlot.set_xlabel("Log Moneyness : ")
 
       #axs[x,y].set_ylim([0, 0.4])
       if SSVIResults is not None :
         curveSSVI = impVol.loc[dataFiltered[impliedVolColumn].index]
-        plotList.append(axs[x,y].plot(xCoordinate, curveSSVI.values, "k-", label = "SSVI"))
+        plotList.append(framePlot.plot(xCoordinate, curveSSVI.values, "k-", label = "SSVI"))
       if GPResults is not None :
         curveGP = impVolGP.loc[dataFiltered[impliedVolColumn].index] 
-        plotList.append(axs[x,y].plot(xCoordinate, curveGP.values, "g-", label = "GP"))
+        plotList.append(framePlot.plot(xCoordinate, curveGP.values, "g-", label = "GP"))
       if NeuralResults is not None :
         curveNN = impVolNN.loc[dataFiltered[impliedVolColumn].index] 
-        plotList.append(axs[x,y].plot(xCoordinate, curveNN.values, "m-", label = "NN"))
+        plotList.append(framePlot.plot(xCoordinate, curveNN.values, "m-", label = "NN"))
       
       if plotMarketData and (not showDiff) :
-        plotList.append(axs[x,y].plot(xCoordinate, curveQuote.values, "k+", label = "Mid"))
+        plotList.append(framePlot.plot(xCoordinate, curveQuote.values, "k+", label = "Mid"))
       
       marker = "+"
       if trainingSet is not None :
-        axs[x,y].plot(trainingCoordinate.values, trainingSpread.values, "b" + marker)
+        framePlot.plot(trainingCoordinate.values, trainingSpread.values, "b" + marker)
       if testingSet is not None :
-        axs[x,y].plot(testingCoordinate.values, testingSpread.values, "r" + marker)
+        framePlot.plot(testingCoordinate.values, testingSpread.values, "r" + marker)
       #axs[x,y].fill_between(xCoordinate, curveBid.values, curveAsk.values, alpha = 0.3)
       if gpQuantiles is not None : 
-        axs[x,y].fill_between(xCoordinate, 
-                              gpQuantiles[0].loc[dataFiltered[impliedVolColumn].index] - (dataFiltered[impliedVolColumn] if showDiff else 0.0), 
-                              gpQuantiles[1].loc[dataFiltered[impliedVolColumn].index] - (dataFiltered[impliedVolColumn] if showDiff else 0.0), 
-                              alpha = 0.3)
-      axs[x,y].tick_params(labelsize=factorSize * 26)
-      axs[x,y].set_title('Maturity : ' + str(round(maturities[k], 4)), fontsize=factorSize * 40)
-      axs[x,y].set_facecolor('white')
-      for spine in axs[x,y].spines.values():
+        framePlot.fill_between(xCoordinate,
+                               gpQuantiles[0].loc[dataFiltered[impliedVolColumn].index] - (dataFiltered[impliedVolColumn] if showDiff else 0.0),
+                               gpQuantiles[1].loc[dataFiltered[impliedVolColumn].index] - (dataFiltered[impliedVolColumn] if showDiff else 0.0),
+                               alpha = 0.3)
+      framePlot.tick_params(labelsize=factorSize * 26)
+      framePlot.set_title('Maturity : ' + str(round(maturities[k], 4)), fontsize=factorSize * 40)
+      framePlot.set_facecolor('white')
+      for spine in framePlot.spines.values():
         spine.set_visible(True)
         spine.set_color("k")
     
@@ -1172,8 +1175,8 @@ def plot2dSmiles(SSVIResults,
           x = k // widthPlot
           y = k % widthPlot
           if nbDeleted == 0 : 
-            chartBox = axs[x,y].get_position()
-            fig.delaxes(axs[x,y])
+            chartBox = framePlot.get_position()
+            fig.delaxes(framePlot)
             fig.legend(plotList[-len(labels):],     # The line objects
                        labels= labels,   # The labels for each line
                        loc="lower left",   # Position of legend
@@ -1241,7 +1244,7 @@ def plot2dPriceSmiles(SSVIResults,
     heightPlot = math.ceil(nbMaturities/widthPlot)#int(np.sqrt(nbMaturities)) +  1 #2 
     nbFrame = heightPlot * widthPlot 
 
-    fig, axs = plt.subplots(heightPlot, widthPlot,figsize=(int(factorSize * 40),int(factorSize * 20)))
+    fig, axs = plt.subplots(heightPlot, widthPlot,figsize=(int(factorSize * 40),int(factorSize * 10 * heightPlot)))
     fig.subplots_adjust( wspace=0.2, hspace=0.4)
     #fig.suptitle('Implied volatility calibrated', fontsize=20)
     plotList = []
@@ -1276,36 +1279,38 @@ def plot2dPriceSmiles(SSVIResults,
 
       x = k // widthPlot
       y = k % widthPlot
+      framePlot = axs[x,y] if heightPlot > 1 else axs[y]
+      #framePlot.set_xlabel("Log Moneyness : ")
 
       #axs[x,y].set_ylim([0, 0.4])
       if SSVIResults is not None :
         curveSSVI = impPrice.loc[dataFiltered["Price"].index]
-        plotList.append(axs[x,y].plot(xCoordinate, curveSSVI.values, "k-", label = "SSVI"))
+        plotList.append(framePlot.plot(xCoordinate, curveSSVI.values, "k-", label = "SSVI"))
       if GPResults is not None :
         curveGP = impPriceGP.loc[dataFiltered["Price"].index] 
-        plotList.append(axs[x,y].plot(xCoordinate, curveGP.values, "g-", label = "GP"))
+        plotList.append(framePlot.plot(xCoordinate, curveGP.values, "g-", label = "GP"))
       if NeuralResults is not None :
         curveNN = impPriceNN.loc[dataFiltered["Price"].index] 
-        plotList.append(axs[x,y].plot(xCoordinate, curveNN.values, "m-", label = "NN"))
+        plotList.append(framePlot.plot(xCoordinate, curveNN.values, "m-", label = "NN"))
       
       if plotMarketData and (not showDiff) :
-        plotList.append(axs[x,y].plot(xCoordinate, curveQuote.values, "k+", label = "Mid"))
+        plotList.append(framePlot.plot(xCoordinate, curveQuote.values, "k+", label = "Mid"))
       
       marker = "+"
       if trainingSet is not None :
-        axs[x,y].plot(trainingCoordinate.values, trainingSpread.values, "b" + marker)
+        framePlot.plot(trainingCoordinate.values, trainingSpread.values, "b" + marker)
       if testingSet is not None :
-        axs[x,y].plot(testingCoordinate.values, testingSpread.values, "r" + marker)
+        framePlot.plot(testingCoordinate.values, testingSpread.values, "r" + marker)
       #axs[x,y].fill_between(xCoordinate, curveBid.values, curveAsk.values, alpha = 0.3)
       if gpQuantiles is not None : 
-        axs[x,y].fill_between(xCoordinate, 
-                              gpQuantiles[0].loc[dataFiltered["Price"].index] - (dataFiltered["Price"] if showDiff else 0.0), 
-                              gpQuantiles[1].loc[dataFiltered["Price"].index] - (dataFiltered["Price"] if showDiff else 0.0), 
-                              alpha = 0.3)
-      axs[x,y].tick_params(labelsize=factorSize * 26)
-      axs[x,y].set_title('Maturity : ' + str(round(maturities[k], 4)), fontsize=factorSize * 40)
-      axs[x,y].set_facecolor('white')
-      for spine in axs[x,y].spines.values():
+        framePlot.fill_between(xCoordinate,
+                               gpQuantiles[0].loc[dataFiltered["Price"].index] - (dataFiltered["Price"] if showDiff else 0.0),
+                               gpQuantiles[1].loc[dataFiltered["Price"].index] - (dataFiltered["Price"] if showDiff else 0.0),
+                               alpha = 0.3)
+      framePlot.tick_params(labelsize=factorSize * 26)
+      framePlot.set_title('Maturity : ' + str(round(maturities[k], 4)), fontsize=factorSize * 40)
+      framePlot.set_facecolor('white')
+      for spine in framePlot.spines.values():
         spine.set_visible(True)
         spine.set_color("k")
     
@@ -1325,8 +1330,8 @@ def plot2dPriceSmiles(SSVIResults,
           x = k // widthPlot
           y = k % widthPlot
           if nbDeleted == 0 : 
-            chartBox = axs[x,y].get_position()
-            fig.delaxes(axs[x,y])
+            chartBox = framePlot.get_position()
+            fig.delaxes(framePlot)
             fig.legend(plotList[-len(labels):],     # The line objects
                        labels= labels,   # The labels for each line
                        loc="lower left",   # Position of legend
@@ -1394,7 +1399,7 @@ def plot2dSmilesTotalVariance(SSVIResults,
     heightPlot = math.ceil(nbMaturities/widthPlot)#int(np.sqrt(nbMaturities)) +  1 #2 
     nbFrame = heightPlot * widthPlot 
 
-    fig, axs = plt.subplots(heightPlot, widthPlot,figsize=(int(factorSize * 40),int(factorSize * 20)))
+    fig, axs = plt.subplots(heightPlot, widthPlot,figsize=(int(factorSize * 40),int(factorSize * 10 * heightPlot)))
     fig.subplots_adjust( wspace=0.2, hspace=0.4)
     #fig.suptitle('Implied volatility calibrated', fontsize=20)
     plotList = []
@@ -1429,36 +1434,38 @@ def plot2dSmilesTotalVariance(SSVIResults,
 
       x = k // widthPlot
       y = k % widthPlot
+      framePlot = axs[x,y] if heightPlot > 1 else axs[y]
+      #framePlot.set_xlabel("Log Moneyness : ")
 
       #axs[x,y].set_ylim([0, 0.4])
       if SSVIResults is not None :
         curveSSVI = impVar.loc[dataFiltered[impliedVolColumn].index]
-        plotList.append(axs[x,y].plot(xCoordinate, curveSSVI.values, "k-", label = "SSVI"))
+        plotList.append(framePlot.plot(xCoordinate, curveSSVI.values, "k-", label = "SSVI"))
       if GPResults is not None :
         curveGP = impVarGP.loc[dataFiltered[impliedVolColumn].index] 
-        plotList.append(axs[x,y].plot(xCoordinate, curveGP.values, "g-", label = "GP"))
+        plotList.append(framePlot.plot(xCoordinate, curveGP.values, "g-", label = "GP"))
       if NeuralResults is not None :
         curveNN = impVarNN.loc[dataFiltered[impliedVolColumn].index] 
-        plotList.append(axs[x,y].plot(xCoordinate, curveNN.values, "m-", label = "NN"))
+        plotList.append(framePlot.plot(xCoordinate, curveNN.values, "m-", label = "NN"))
       
       if plotMarketData and (not showDiff) :
-        plotList.append(axs[x,y].plot(xCoordinate, curveQuote.values, "k+", label = "Mid"))
+        plotList.append(framePlot.plot(xCoordinate, curveQuote.values, "k+", label = "Mid"))
       
       marker = "+"
       if trainingSet is not None :
-        axs[x,y].plot(trainingCoordinate.values, trainingSpread.values, "b" + marker)
+        framePlot.plot(trainingCoordinate.values, trainingSpread.values, "b" + marker)
       if testingSet is not None :
-        axs[x,y].plot(testingCoordinate.values, testingSpread.values, "r" + marker)
+        framePlot.plot(testingCoordinate.values, testingSpread.values, "r" + marker)
       #axs[x,y].fill_between(xCoordinate, curveBid.values, curveAsk.values, alpha = 0.3)
       if gpQuantiles is not None : 
-        axs[x,y].fill_between(xCoordinate, 
-                              impliedTotVarianceFunction(gpQuantiles[0].loc[dataFiltered[impliedVolColumn].index])  - (impliedTotVarianceFunction(dataFiltered[impliedVolColumn]) if showDiff else 0.0), 
-                              impliedTotVarianceFunction(gpQuantiles[1].loc[dataFiltered[impliedVolColumn].index]) - (impliedTotVarianceFunction(dataFiltered[impliedVolColumn]) if showDiff else 0.0), 
-                              alpha = 0.3)
-      axs[x,y].tick_params(labelsize=factorSize * 26)
-      axs[x,y].set_title('Maturity : ' + str(round(maturities[k], 4)), fontsize=factorSize * 40)
-      axs[x,y].set_facecolor('white')
-      for spine in axs[x,y].spines.values():
+        framePlot.fill_between(xCoordinate,
+                               impliedTotVarianceFunction(gpQuantiles[0].loc[dataFiltered[impliedVolColumn].index])  - (impliedTotVarianceFunction(dataFiltered[impliedVolColumn]) if showDiff else 0.0),
+                               impliedTotVarianceFunction(gpQuantiles[1].loc[dataFiltered[impliedVolColumn].index]) - (impliedTotVarianceFunction(dataFiltered[impliedVolColumn]) if showDiff else 0.0),
+                               alpha = 0.3)
+      framePlot.tick_params(labelsize=factorSize * 26)
+      framePlot.set_title('Maturity : ' + str(round(maturities[k], 4)), fontsize=factorSize * 40)
+      framePlot.set_facecolor('white')
+      for spine in framePlot.spines.values():
         spine.set_visible(True)
         spine.set_color("k")
     
@@ -1478,8 +1485,8 @@ def plot2dSmilesTotalVariance(SSVIResults,
           x = k // widthPlot
           y = k % widthPlot
           if nbDeleted == 0 : 
-            chartBox = axs[x,y].get_position()
-            fig.delaxes(axs[x,y])
+            chartBox = framePlot.get_position()
+            fig.delaxes(framePlot)
             fig.legend(plotList[-len(labels):],     # The line objects
                        labels= labels,   # The labels for each line
                        loc="lower left",   # Position of legend
